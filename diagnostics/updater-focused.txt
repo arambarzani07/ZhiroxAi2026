@@ -1,56 +1,4 @@
-=== cleanup context ===
-  1735	}
-  1736	
-  1737	func queueResult(r CommandResult) {
-  1738		b, _ := json.Marshal(r)
-  1739		name := fmt.Sprintf("%d-%s.json", time.Now().UnixNano(), r.ID)
-  1740		_ = os.WriteFile(filepath.Join(queueDir, name), b, 0600)
-  1741	}
-  1742	
-  1743	func flushResults() {
-  1744		if strings.TrimSpace(cfg.RelayURL) == "" {
-  1745			return
-  1746		}
-  1747		ents, _ := os.ReadDir(queueDir)
-  1748		sort.Slice(ents, func(i, j int) bool { return ents[i].Name() < ents[j].Name() })
-  1749		for _, e := range ents {
-  1750			if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
-  1751				continue
-  1752			}
-  1753			p := filepath.Join(queueDir, e.Name())
-  1754			b, err := os.ReadFile(p)
-  1755			if err != nil {
-  1756				continue
-  1757			}
-  1758			var r CommandResult
-  1759			if json.Unmarshal(b, &r) != nil {
-  1760				continue
-  1761			}
-  1762			if postResult(r) == nil {
-  1763				_ = os.Remove(p)
-  1764			} else {
-  1765				return
-  1766			}
-  1767		}
-  1768	}
-  1769	
-  1770	func versionParts(v string) []int {
-  1771		v = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(v), "v"))
-  1772		main := strings.SplitN(v, "-", 2)[0]
-  1773		raw := strings.Split(main, ".")
-  1774		out := make([]int, 3)
-  1775		for i := 0; i < len(out) && i < len(raw); i++ {
-  1776			n, _ := strconv.Atoi(raw[i])
-  1777			out[i] = n
-  1778		}
-  1779		return out
-  1780	}
-  1781	
-  1782	func newerVersion(remote, current string) bool {
-  1783		a := versionParts(remote)
-  1784		b := versionParts(current)
-  1785		for i := 0; i < 3; i++ {
-=== updater context ===
+=== update context ===
   1788			}
   1789			if a[i] < b[i] {
   1790				return false
@@ -199,223 +147,210 @@
   1933				log.Printf("auto-update: %v", err)
   1934			}
   1935			time.Sleep(time.Duration(cfg.UpdateIntervalMinutes) * time.Minute)
-=== startup/update loop context ===
-1804-	if u.Scheme == "http" {
-1805-		h := strings.ToLower(u.Hostname())
-1806-		return h == "127.0.0.1" || h == "localhost" || h == "::1"
-1807-	}
-1808-	return false
-1809-}
-1810-
-1811-func absoluteUpdateURL(manifestURL, fileURL string) (string, error) {
-1812-	u, err := url.Parse(fileURL)
-1813-	if err != nil {
-1814-		return "", err
-1815-	}
-1816-	if u.IsAbs() {
-1817-		return u.String(), nil
-1818-	}
-1819-	base, err := url.Parse(manifestURL)
-1820-	if err != nil {
-1821-		return "", err
-1822-	}
-1823-	return base.ResolveReference(u).String(), nil
-1824-}
-1825-
-1826-func downloadWithAgentAuth(rawURL string) ([]byte, error) {
-1827-	if !updateURLAllowed(rawURL) {
-1828-		return nil, errors.New("update URL must use HTTPS (HTTP allowed only for localhost)")
-1829-	}
-1830-	req, _ := http.NewRequest("GET", rawURL, nil)
-1831-	relayHeaders(req)
-1832-	resp, err := httpClient.Do(req)
-1833-	if err != nil {
-1834-		return nil, err
-1835-	}
-1836-	defer resp.Body.Close()
-1837-	if resp.StatusCode != 200 {
-1838-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-1839-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-1840-	}
-1841-	return io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
-1842-}
-1843-
-1844:func checkForUpdate() error {
-1845-	if !cfg.AutoUpdate {
-1846-		return nil
-1847-	}
-1848-	manifestURL := strings.TrimSpace(cfg.UpdateManifestURL)
-1849-	if manifestURL == "" {
-1850-		return nil
-1851-	}
-1852-	if !updateURLAllowed(manifestURL) {
-1853-		return errors.New("update manifest URL must use HTTPS (HTTP allowed only for localhost)")
-1854-	}
-1855-
-1856-	b, err := downloadWithAgentAuth(manifestURL)
-1857-	if err != nil {
-1858-		return fmt.Errorf("manifest: %w", err)
-1859-	}
-1860-
-1861-	var m UpdateManifest
-1862-	if err := json.Unmarshal(b, &m); err != nil {
-1863-		return fmt.Errorf("manifest JSON: %w", err)
-1864-	}
-1865-	if strings.TrimSpace(m.Version) == "" || strings.TrimSpace(m.URL) == "" || strings.TrimSpace(m.SHA256) == "" {
-1866-		return errors.New("manifest missing version/url/sha256")
-1867-	}
-1868-	if !newerVersion(m.Version, version) {
-1869-		return nil
-1870-	}
-1871-
-1872-	fileURL, err := absoluteUpdateURL(manifestURL, m.URL)
-1873-	if err != nil {
-1874-		return err
-1875-	}
-1876-	payload, err := downloadWithAgentAuth(fileURL)
-1877-	if err != nil {
-1878-		return fmt.Errorf("download update: %w", err)
-1879-	}
-1880-
-1881-	sum := sha256.Sum256(payload)
-1882-	actual := hex.EncodeToString(sum[:])
-1883-	expected := strings.ToLower(strings.TrimSpace(m.SHA256))
-1884-	if actual != expected {
-1885-		return fmt.Errorf("update SHA256 mismatch: expected %s got %s", expected, actual)
-1886-	}
-1887-
-1888-	newPath := filepath.Join(baseDir, "ZhiroxAISupervisor.exe.new")
-1889-	if err := os.WriteFile(newPath, payload, 0700); err != nil {
-1890-		return fmt.Errorf("stage update: %w", err)
-1891-	}
-1892-
-1893-	updater := filepath.Join(baseDir, "ZhiroxUpdater.exe")
-1894-	if _, err := os.Stat(updater); err != nil {
-1895-		_ = os.Remove(newPath)
-1896-		return errors.New("ZhiroxUpdater.exe is missing")
-1897-	}
-1898-
-1899-	currentExe, err := os.Executable()
-1900-	if err != nil {
-1901-		_ = os.Remove(newPath)
-1902-		return err
-1903-	}
-1904-
-1905-	log.Printf("auto-update: v%s -> v%s verified; installing silently", version, m.Version)
-1906-	cmd := hiddenCommand(
-1907-		updater,
-1908-		"--pid", strconv.Itoa(os.Getpid()),
-1909-		"--current", currentExe,
-1910-		"--new", newPath,
-1911-		"--version", strings.TrimSpace(m.Version),
-1912-		"--sha256", expected,
-1913-		"--health-marker", filepath.Join(baseDir, "update-health.json"),
-1914-	)
-1915-	cmd.Dir = baseDir
-1916-	if err := cmd.Start(); err != nil {
-1917-		_ = os.Remove(newPath)
-1918-		return fmt.Errorf("start updater: %w", err)
-1919-	}
-1920-
-1921-	os.Exit(0)
-1922-	return nil
-1923-}
-1924-
-1925-func autoUpdateLoop() {
-1926-	if !cfg.AutoUpdate {
-1927-		log.Printf("auto-update disabled")
-1928-		return
-1929-	}
-1930-	time.Sleep(20 * time.Second)
-1931-	for {
-1932:		if err := checkForUpdate(); err != nil {
-1933-			log.Printf("auto-update: %v", err)
-1934-		}
-1935-		time.Sleep(time.Duration(cfg.UpdateIntervalMinutes) * time.Minute)
-1936-	}
-1937-}
-1938-
-1939-func isManagedVersionArtifact(name string) bool {
-1940-	n := strings.ToLower(strings.TrimSpace(name))
-1941-	// Only files created by this updater are eligible.
-1942-	if n == "zhiroxaisupervisor.exe.bak" ||
-1943-		n == "zhiroxaisupervisor.exe.new" ||
-1944-		n == "zhiroxaisupervisor.exe.old" {
-1945-		return true
-1946-	}
-1947-	if strings.HasPrefix(n, "zhiroxaisupervisor-") &&
-1948-		(strings.HasSuffix(n, ".bak") || strings.HasSuffix(n, ".old") || strings.HasSuffix(n, ".new")) {
-1949-		return true
-1950-	}
-1951-	if strings.HasPrefix(n, "update-") &&
-1952-		(strings.HasSuffix(n, ".tmp") || strings.HasSuffix(n, ".part")) {
-1953-		return true
-1954-	}
-1955-	return false
-1956-}
-1957-
-1958-func cleanupOldVersionArtifacts() ([]string, error) {
-1959-	if !cfg.AutoCleanupOldVersions {
-1960-		return nil, nil
-1961-	}
-1962-
-1963-	entries, err := os.ReadDir(baseDir)
-1964-	if err != nil {
-1965-		return nil, err
-1966-	}
-1967-
-1968-	currentExe, _ := os.Executable()
-1969-	currentAbs, _ := filepath.Abs(currentExe)
-1970-	deleted := []string{}
-1971-
-1972-	for _, e := range entries {
-1973-		if e.IsDir() || !isManagedVersionArtifact(e.Name()) {
-1974-			continue
-1975-		}
-1976-		p := filepath.Join(baseDir, e.Name())
-1977-		abs, _ := filepath.Abs(p)
-1978-
-1979-		// Never delete the currently running executable.
-1980-		if currentAbs != "" && strings.EqualFold(abs, currentAbs) {
-1981-			continue
-1982-		}
-1983-
-1984-		if err := os.Remove(p); err == nil {
-1985-			deleted = append(deleted, e.Name())
-1986-		}
-1987-	}
-1988-	return deleted, nil
-1989-}
-1990-
-1991-func cleanupLoop() {
-1992-	if !cfg.AutoCleanupOldVersions {
-1993-		log.Printf("old-version cleanup disabled")
-1994-		return
-1995-	}
-1996-
-1997-	// Keep rollback files until the new process has remained alive long enough
-1998-	// to prove it can start and operate.
-1999-	time.Sleep(time.Duration(cfg.CleanupDelaySeconds) * time.Second)
-2000-
-2001-	deleted, err := cleanupOldVersionArtifacts()
-2002-	if err != nil {
-2003-		log.Printf("old-version cleanup: %v", err)
-2004-		return
-2005-	}
-2006-	if len(deleted) > 0 {
-2007-		log.Printf("old-version cleanup removed: %s", strings.Join(deleted, ", "))
-2008-	}
-2009-}
-2010-
-2011-func commandLoop() {
-2012-	delay := time.Duration(cfg.PollSeconds) * time.Second
-2013-	for {
-2014-		flushResults()
-2015-		c, err := fetchCommand()
-2016-		if err != nil {
-2017-			log.Printf("command poll: %v", err)
-2018-			time.Sleep(delay)
-2019-			continue
-2020-		}
-2021-		if c != nil {
-2022-			log.Printf("command: %s id=%s", c.Action, c.ID)
+  1936		}
+  1937	}
+  1938	
+=== cleanup context ===
+  1938	
+  1939	func isManagedVersionArtifact(name string) bool {
+  1940		n := strings.ToLower(strings.TrimSpace(name))
+  1941		// Only files created by this updater are eligible.
+  1942		if n == "zhiroxaisupervisor.exe.bak" ||
+  1943			n == "zhiroxaisupervisor.exe.new" ||
+  1944			n == "zhiroxaisupervisor.exe.old" {
+  1945			return true
+  1946		}
+  1947		if strings.HasPrefix(n, "zhiroxaisupervisor-") &&
+  1948			(strings.HasSuffix(n, ".bak") || strings.HasSuffix(n, ".old") || strings.HasSuffix(n, ".new")) {
+  1949			return true
+  1950		}
+  1951		if strings.HasPrefix(n, "update-") &&
+  1952			(strings.HasSuffix(n, ".tmp") || strings.HasSuffix(n, ".part")) {
+  1953			return true
+  1954		}
+  1955		return false
+  1956	}
+  1957	
+  1958	func cleanupOldVersionArtifacts() ([]string, error) {
+  1959		if !cfg.AutoCleanupOldVersions {
+  1960			return nil, nil
+  1961		}
+  1962	
+  1963		entries, err := os.ReadDir(baseDir)
+  1964		if err != nil {
+  1965			return nil, err
+  1966		}
+  1967	
+  1968		currentExe, _ := os.Executable()
+  1969		currentAbs, _ := filepath.Abs(currentExe)
+  1970		deleted := []string{}
+  1971	
+  1972		for _, e := range entries {
+  1973			if e.IsDir() || !isManagedVersionArtifact(e.Name()) {
+  1974				continue
+  1975			}
+  1976			p := filepath.Join(baseDir, e.Name())
+  1977			abs, _ := filepath.Abs(p)
+  1978	
+  1979			// Never delete the currently running executable.
+  1980			if currentAbs != "" && strings.EqualFold(abs, currentAbs) {
+  1981				continue
+  1982			}
+  1983	
+  1984			if err := os.Remove(p); err == nil {
+  1985				deleted = append(deleted, e.Name())
+  1986			}
+  1987		}
+  1988		return deleted, nil
+  1989	}
+  1990	
+  1991	func cleanupLoop() {
+  1992		if !cfg.AutoCleanupOldVersions {
+  1993			log.Printf("old-version cleanup disabled")
+  1994			return
+  1995		}
+  1996	
+  1997		// Keep rollback files until the new process has remained alive long enough
+  1998		// to prove it can start and operate.
+  1999		time.Sleep(time.Duration(cfg.CleanupDelaySeconds) * time.Second)
+  2000	
+  2001		deleted, err := cleanupOldVersionArtifacts()
+  2002		if err != nil {
+  2003			log.Printf("old-version cleanup: %v", err)
+  2004			return
+  2005		}
+  2006		if len(deleted) > 0 {
+  2007			log.Printf("old-version cleanup removed: %s", strings.Join(deleted, ", "))
+  2008		}
+  2009	}
+  2010	
+  2011	func commandLoop() {
+  2012		delay := time.Duration(cfg.PollSeconds) * time.Second
+  2013		for {
+  2014			flushResults()
+  2015			c, err := fetchCommand()
+  2016			if err != nil {
+  2017				log.Printf("command poll: %v", err)
+  2018				time.Sleep(delay)
+  2019				continue
+  2020			}
+  2021			if c != nil {
+  2022				log.Printf("command: %s id=%s", c.Action, c.ID)
+  2023				r := executeCommand(*c)
+  2024				if err := postResult(r); err != nil {
+  2025					log.Printf("queue result: %v", err)
+  2026					queueResult(r)
+  2027				}
+  2028			}
+  2029			time.Sleep(delay)
+  2030		}
+  2031	}
+  2032	
+  2033	func heartbeatLoop() {
+  2034		delay := time.Duration(cfg.HeartbeatSeconds) * time.Second
+  2035		for {
+=== heartbeat and main context ===
+  1645		resp, err := httpClient.Do(req)
+  1646		if err != nil {
+  1647			return err
+  1648		}
+  1649		defer resp.Body.Close()
+  1650		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+  1651			return nil
+  1652		}
+  1653		rb, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+  1654		return fmt.Errorf("pair HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(rb)))
+  1655	}
+  1656	
+  1657	func sendHeartbeat() error {
+  1658		if strings.TrimSpace(cfg.RelayURL) == "" {
+  1659			return nil
+  1660		}
+  1661		m, err := metricsSnapshot()
+  1662		if err != nil {
+  1663			return err
+  1664		}
+  1665		score, alerts := healthFromMetrics(m)
+  1666		host, _ := os.Hostname()
+  1667		hb := Heartbeat{
+  1668			AgentID: cfg.AgentID, Version: version, Hostname: host,
+  1669			Timestamp:   time.Now().Format(time.RFC3339),
+  1670			HealthScore: score, Metrics: m, Alerts: alerts,
+  1671		}
+  1672		b, _ := json.Marshal(hb)
+  1673		url := strings.TrimRight(cfg.RelayURL, "/") + "/api/agent/" + cfg.AgentID + "/heartbeat"
+  1674		req, _ := http.NewRequest("POST", url, bytes.NewReader(b))
+  1675		relayHeaders(req)
+  1676		resp, err := httpClient.Do(req)
+  1677		if err != nil {
+  1678			return err
+  1679		}
+  1680		defer resp.Body.Close()
+  1681		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+  1682			rb, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+  1683			return fmt.Errorf("heartbeat HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(rb)))
+  1684		}
+  1685		return nil
+  1686	}
+  1687	
+  1688	func fetchCommand() (*Command, error) {
+  1689		if strings.TrimSpace(cfg.RelayURL) == "" {
+  1690			return nil, nil
+  2030		}
+  2031	}
+  2032	
+  2033	func heartbeatLoop() {
+  2034		delay := time.Duration(cfg.HeartbeatSeconds) * time.Second
+  2035		for {
+  2036			if err := sendHeartbeat(); err != nil {
+  2037				log.Printf("heartbeat: %v", err)
+  2038			}
+  2039			time.Sleep(delay)
+  2040		}
+  2041	}
+  2042	
+  2043	func setupLogging() {
+  2044		logPath := filepath.Join(baseDir, "agent.log")
+  2045		if st, err := os.Stat(logPath); err == nil && st.Size() > 5*1024*1024 {
+  2046			_ = os.Remove(logPath + ".1")
+  2047			_ = os.Rename(logPath, logPath+".1")
+  2048		}
+  2049		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
+  2050			log.SetOutput(f)
+  2051		}
+  2052	}
+  2053	
+  2054	func writeHealthMarker() {
+  2055		marker := map[string]interface{}{
+  2056			"version":    version,
+  2057			"agent_id":   cfg.AgentID,
+  2058			"pid":        os.Getpid(),
+  2059			"started_at": time.Now().UTC().Format(time.RFC3339Nano),
+  2060		}
+  2061		b, _ := json.Marshal(marker)
+  2062		_ = os.WriteFile(filepath.Join(baseDir, "update-health.json"), b, 0600)
+  2063	}
+  2064	
+  2065	func main() {
+  2066		if err := loadConfig(); err != nil {
+  2067			log.Fatalf("config: %v", err)
+  2068		}
+  2069		setupLogging()
+  2070		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+  2071		log.Printf("%s v%s starting; agent_id=%s", cfg.AgentName, version, cfg.AgentID)
+  2072		writeHealthMarker()
+  2073	
+  2074		if strings.TrimSpace(cfg.RelayURL) != "" {
+  2075			if err := pairIfNeeded(); err != nil {
+  2076				log.Printf("pairing: %v", err)
+  2077			} else {
+  2078				log.Printf("relay pairing accepted")
+  2079			}
+  2080		}
+  2081	
+  2082		go commandLoop()
+  2083		go heartbeatLoop()
+  2084		go autoUpdateLoop()
+  2085		go cleanupLoop()
+  2086		select {}
+  2087	}
