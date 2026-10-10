@@ -23,12 +23,13 @@ jobs:
       - name: Capture focused updater source
         run: |
           {
+            echo '=== update context ==='
+            nl -ba buildsrc/main.go | sed -n '1788,1938p'
             echo '=== cleanup context ==='
-            nl -ba buildsrc/main.go | sed -n '1735,1785p'
-            echo '=== updater context ==='
-            nl -ba buildsrc/main.go | sed -n '1788,1935p'
-            echo '=== startup/update loop context ==='
-            grep -n -A90 -B40 'checkForUpdate()' buildsrc/main.go | head -n 260 || true
+            nl -ba buildsrc/main.go | sed -n '1938,2035p'
+            echo '=== heartbeat and main context ==='
+            nl -ba buildsrc/main.go | sed -n '1645,1690p'
+            nl -ba buildsrc/main.go | sed -n '2030,2095p'
           } > diagnostics/updater-focused.txt
       - name: Publish inspection text
         run: |
@@ -36,6 +37,6 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add diagnostics/updater-focused.txt
           if ! git diff --cached --quiet; then
-            git commit -m 'Capture focused updater source inspection [skip ci]'
+            git commit -m 'Capture update cleanup and health source [skip ci]'
             git push
           fi
