@@ -1,1 +1,1 @@
-{"version":"5.0.2","file":"ZhiroxAISupervisor.exe","sha256":"3be845490f983ec40ac2b17ae555b987af2c9aa8404c57f272b84e6e11fea13a","size":6305280,"notes":"Secure host-scoped updater auth; 120s timeout; 3-attempt transient retry; Zero-UI preserved"}
+{"version":"5.0.3","file":"ZhiroxAISupervisor.exe","sha256":"df00f77b116c02c42475b5f9c82021dace1aacc10b685abff28bf8c5b36ee2c5","size":6306304,"notes":"Automatic update with SHA256 verification and health-gated cleanup of managed updater artifacts; Zero-UI preserved"}
