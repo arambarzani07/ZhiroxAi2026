@@ -42,10 +42,9 @@ def replace_func(src: str, name: str, replacement: str):
 
 cleanup_loop = r'''
 func cleanupLoop() {
-    if !cfg.AutoCleanupOldVersions {
-        log.Printf("old-version cleanup disabled")
-        return
-    }
+    // Owner policy: managed Zhirox updater artifacts are always cleaned up
+    // after the new version proves healthy. Unrelated files are never touched.
+    cfg.AutoCleanupOldVersions = true
 
     delay := cfg.CleanupDelaySeconds
     if delay < 120 {
