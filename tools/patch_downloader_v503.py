@@ -72,6 +72,9 @@ for p in sorted(Path('buildsrc').glob('*.go')):
     )
 
     text = text[:start] + fn + text[end:]
+    # Apply the longer timeout to the shared HTTP client as well, not only local function text.
+    text = re.sub(r'25\s*\*\s*time\.Second', '120 * time.Second', text)
+
     if 'func zhiroxDoWithRetry(' not in text:
         text += '''\n\nfunc zhiroxDoWithRetry(client *http.Client, req *http.Request, attempts int) (*http.Response, error) {\n\tif attempts < 1 { attempts = 1 }\n\tvar resp *http.Response\n\tvar err error\n\tfor i := 0; i < attempts; i++ {\n\t\trequest := req\n\t\tif i > 0 { request = req.Clone(req.Context()) }\n\t\tresp, err = client.Do(request)\n\t\tif err == nil { return resp, nil }\n\t\tif i+1 < attempts { time.Sleep(time.Duration(i+1) * 2 * time.Second) }\n\t}\n\treturn resp, err\n}\n'''
 
