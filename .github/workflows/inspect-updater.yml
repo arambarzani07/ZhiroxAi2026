@@ -20,26 +20,22 @@ jobs:
           mkdir -p buildsrc diagnostics
           cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
-      - name: Capture updater and staging logic
+      - name: Capture focused updater source
         run: |
           {
-            echo '=== files ==='
-            find buildsrc -maxdepth 1 -type f -printf '%f\n' | sort
-            echo '=== update symbols ==='
-            grep -RniE 'downloadWithAgentAuth|update-health|\.new|\.bak|sha256|manifest|update|rename|Remove\(' buildsrc/*.go | head -n 800 || true
-            echo '=== downloader context ==='
-            grep -Rni -A120 -B35 'func downloadWithAgentAuth' buildsrc/*.go || true
-            echo '=== update-health context ==='
-            grep -Rni -A160 -B60 'update-health' buildsrc/*.go || true
-            echo '=== new/bak context ==='
-            grep -Rni -A120 -B60 -E '\.new|\.bak' buildsrc/*.go || true
-          } > diagnostics/updater-inspection.txt
+            echo '=== cleanup context ==='
+            nl -ba buildsrc/main.go | sed -n '1735,1785p'
+            echo '=== updater context ==='
+            nl -ba buildsrc/main.go | sed -n '1788,1935p'
+            echo '=== startup/update loop context ==='
+            grep -n -A90 -B40 'checkForUpdate()' buildsrc/main.go | head -n 260 || true
+          } > diagnostics/updater-focused.txt
       - name: Publish inspection text
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add diagnostics/updater-inspection.txt
+          git add diagnostics/updater-focused.txt
           if ! git diff --cached --quiet; then
-            git commit -m 'Capture updater source inspection [skip ci]'
+            git commit -m 'Capture focused updater source inspection [skip ci]'
             git push
           fi
