@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'source-v5.0.1.tar.gz.b64'
+      - 'source-v5.0.1.part*'
       - '.github/workflows/build-update.yml'
   workflow_dispatch:
 
@@ -22,7 +22,7 @@ jobs:
       - name: Restore source bundle
         run: |
           mkdir -p buildsrc channel
-          base64 -d source-v5.0.1.tar.gz.b64 > /tmp/zhirox-source.tar.gz
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
       - name: Build Windows background supervisor
         working-directory: buildsrc
