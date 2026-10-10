@@ -1,1 +1,1 @@
-{"version":"5.0.1","file":"ZhiroxAISupervisor.exe","sha256":"ecdffb89bd6ec21f295df27b40557d3964a4ebfdac461b35443e0626625752ec","size":6296064,"notes":"Storage scanner nested-path fix; Zero-UI policy preserved"}
+{"version":"5.0.2","file":"ZhiroxAISupervisor.exe","sha256":"3be845490f983ec40ac2b17ae555b987af2c9aa8404c57f272b84e6e11fea13a","size":6305280,"notes":"Secure host-scoped updater auth; 120s timeout; 3-attempt transient retry; Zero-UI preserved"}
