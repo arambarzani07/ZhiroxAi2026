@@ -1,0 +1,48 @@
+name: Build trusted Zhirox update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'source-v5.0.1.tar.gz.b64'
+      - '.github/workflows/build-update.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Restore source bundle
+        run: |
+          mkdir -p buildsrc channel
+          base64 -d source-v5.0.1.tar.gz.b64 > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+      - name: Build Windows background supervisor
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go
+      - name: Generate trusted channel metadata
+        run: |
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.0.1","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"notes":"Storage scanner nested-path fix; Zero-UI policy preserved"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+      - name: Publish channel artifacts
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Zhirox v5.0.1 trusted update [skip ci]'
+            git push
+          fi
