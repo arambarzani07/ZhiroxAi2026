@@ -74,7 +74,7 @@ jobs:
                           out.append(f'- `{name}`')
 
           out += ['', '## Relevant call relationships']
-          wanted = ['sendHeartbeat', 'collectMetrics', 'collectHealth', 'handleCommand', 'commandLoop', 'updateLoop']
+          wanted = ['sendHeartbeat', 'commandLoop', 'heartbeatLoop', 'checkForUpdate', 'autoUpdateLoop', 'writeHealthMarker']
           for p in roots:
               text = p.read_text(errors='ignore')
               for name in wanted:
@@ -84,13 +84,66 @@ jobs:
           Path('docs/generated-v509-integration-map.md').write_text('\n'.join(out) + '\n')
           PY
 
-      - name: Commit generated source map
+      - name: Generate updater integration body map
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def function_body(src: str, name: str):
+              marker = f'func {name}('
+              start = src.find(marker)
+              if start < 0:
+                  return None
+              brace = src.find('{', start)
+              if brace < 0:
+                  return None
+              depth = 0
+              in_string = False
+              raw_string = False
+              escape = False
+              for i in range(brace, len(src)):
+                  ch = src[i]
+                  if raw_string:
+                      if ch == '`': raw_string = False
+                      continue
+                  if in_string:
+                      if escape: escape = False
+                      elif ch == '\\': escape = True
+                      elif ch == '"': in_string = False
+                      continue
+                  if ch == '`': raw_string = True; continue
+                  if ch == '"': in_string = True; continue
+                  if ch == '{': depth += 1
+                  elif ch == '}':
+                      depth -= 1
+                      if depth == 0:
+                          return src[start:i+1]
+              return None
+
+          selected = [
+              'versionParts', 'newerVersion', 'updateURLAllowed', 'absoluteUpdateURL',
+              'downloadWithAgentAuth', 'checkForUpdate', 'autoUpdateLoop',
+              'cleanupOldVersionArtifacts', 'cleanupLoop', 'writeHealthMarker'
+          ]
+          out = ['# Generated hardened updater integration body map', '',
+                 '> Generated from restored + patched v5.0.9 source. Contains code only; no runtime config values or secrets.', '']
+          for p in sorted(Path('buildsrc').glob('*.go')):
+              src = p.read_text(errors='ignore')
+              for name in selected:
+                  body = function_body(src, name)
+                  if body:
+                      out += [f'## {p.name}: {name}', '', '```go', body, '```', '']
+          Path('docs/generated-v509-updater-map.md').write_text('\n'.join(out))
+          PY
+
+      - name: Commit generated maps
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/generated-v509-integration-map.md
+          git config user.email '4189824+github-actions[bot]@users.noreply.github.com'
+          git add docs/generated-v509-integration-map.md docs/generated-v509-updater-map.md
           if ! git diff --cached --quiet; then
-            git commit -m 'Generate v5.0.9 integration source map [skip ci]'
+            git commit -m 'Generate v5.0.9 updater integration map [skip ci]'
             git push
           fi
