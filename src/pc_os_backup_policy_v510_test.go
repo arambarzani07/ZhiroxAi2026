@@ -33,9 +33,8 @@ func TestPCOSBackupConfirmationIsExact(t *testing.T) {
 
 func TestPCOSBackupPathVaultBoundary(t *testing.T) {
     allowed := []string{
-        `D:\ZhiroxBackups\BusinessDB\a.bak`,
-        `d:/ZhiroxBackups/BusinessDB/a.bak`,
-        `D:\ZhiroxBackups\BusinessDB\folder\..\a.bak`,
+        `D:\ZhiroxBackups\BusinessDB-20261011T210000Z.bak`,
+        `d:/ZhiroxBackups/BusinessDB-20261011T210000Z.bak`,
     }
     for _, v := range allowed {
         got, err := pcOSValidateBackupPath(v)
@@ -51,15 +50,32 @@ func TestPCOSBackupPathVaultBoundary(t *testing.T) {
         `D:\DataBase\BusinessDB.bak`,
         `C:\Temp\BusinessDB.bak`,
         `D:\ZhiroxBackups\..\Windows\BusinessDB.bak`,
+        `D:\ZhiroxBackups\BusinessDB\a.bak`,
+        `D:\ZhiroxBackups\nested\..\a.bak`,
         `\\server\share\BusinessDB.bak`,
-        `D:\ZhiroxBackups\BusinessDB\a.txt`,
-        `D:\ZhiroxBackups\BusinessDB\a.bak:stream`,
+        `D:\ZhiroxBackups\BusinessDB.txt`,
+        `D:\ZhiroxBackups\BusinessDB.bak:stream`,
         `relative\BusinessDB.bak`,
     }
     for _, v := range rejected {
         if _, err := pcOSValidateBackupPath(v); err == nil {
             t.Fatalf("expected path %q to be rejected", v)
         }
+    }
+}
+
+func TestPCOSBackupDefaultDestinationIsFlatVaultFile(t *testing.T) {
+    got, err := pcOSBackupDestination("", "BusinessDB")
+    if err != nil {
+        t.Fatal(err)
+    }
+    lower := strings.ToLower(got)
+    if !strings.HasPrefix(lower, `d:\zhiroxbackups\businessdb-`) || !strings.HasSuffix(lower, ".bak") {
+        t.Fatalf("unexpected default destination %q", got)
+    }
+    relative := got[len(pcOSBackupDefaultRoot)+1:]
+    if strings.Contains(relative, `\`) {
+        t.Fatalf("default backup destination must not contain nested directories: %q", got)
     }
 }
 
