@@ -1,6 +1,6 @@
 -- Zhirox PC OS v5.1.0 additive telemetry/control-plane schema.
 -- No existing relay/business rows are modified.
--- All tables are service-role only by default; anon/authenticated receive no grants.
+-- Data API posture is explicit: service_role only; anon/authenticated are denied.
 
 create table if not exists public.pc_os_snapshots (
   id uuid primary key default gen_random_uuid(),
@@ -81,8 +81,16 @@ alter table public.pc_os_integrity_baselines enable row level security;
 alter table public.pc_os_backup_catalog enable row level security;
 alter table public.pc_os_update_audit enable row level security;
 
+-- Explicit Data API posture for Supabase's 2026 grant-default changes.
+-- Agent traffic reaches these tables only through the trusted relay service role.
 revoke all on table public.pc_os_snapshots from anon, authenticated;
 revoke all on table public.pc_os_events from anon, authenticated;
 revoke all on table public.pc_os_integrity_baselines from anon, authenticated;
 revoke all on table public.pc_os_backup_catalog from anon, authenticated;
 revoke all on table public.pc_os_update_audit from anon, authenticated;
+
+grant select, insert, update, delete on table public.pc_os_snapshots to service_role;
+grant select, insert, update, delete on table public.pc_os_events to service_role;
+grant select, insert, update, delete on table public.pc_os_integrity_baselines to service_role;
+grant select, insert, update, delete on table public.pc_os_backup_catalog to service_role;
+grant select, insert, update, delete on table public.pc_os_update_audit to service_role;
