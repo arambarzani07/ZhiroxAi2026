@@ -1,0 +1,63 @@
+name: Build Zhirox v5.0.8
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-v508.yml'
+      - 'tools/patch_v508.py'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Restore source
+        run: |
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+      - name: Apply patches
+        run: |
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          gofmt -w buildsrc/*.go
+      - name: Compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go test ./...
+      - name: Build
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go
+      - name: Metadata
+        run: |
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.0.8","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"notes":"One-time guarded SSIS Scale Out log retention cleanup; v5.0.7 critical protections preserved"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+      - name: Publish
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Zhirox v5.0.8 [skip ci]'
+            git push
+          fi
