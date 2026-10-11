@@ -1,0 +1,59 @@
+from pathlib import Path
+
+main = Path('buildsrc/main.go')
+text = main.read_text()
+
+# Wire the enterprise PC OS surface into the existing structured command switch.
+# All new remote commands in v5.1.0 are read-only. The only local write performed
+# by the module is its own atomic health state under the active ZhiroxAI root.
+old = '''\tcase "binary_phrase_probe":
+\t\tout, err = binaryPhraseProbe(sarg(c.Args, "path"), sarg(c.Args, "needle"))
+\tcase "support_bundle":'''
+new = '''\tcase "binary_phrase_probe":
+\t\tout, err = binaryPhraseProbe(sarg(c.Args, "path"), sarg(c.Args, "needle"))
+\tcase "pc_os_overview":
+\t\tout, err = pcOSOverview()
+\tcase "pc_os_modules":
+\t\tout, err = pcOSModules()
+\tcase "pc_os_guardian":
+\t\tout, err = pcOSGuardian()
+\tcase "pc_os_backup":
+\t\tout, err = pcOSBackupVault()
+\tcase "pc_os_continuity":
+\t\tout, err = pcOSBusinessContinuity()
+\tcase "pc_os_update_chain":
+\t\tout, err = pcOSUpdateChain()
+\tcase "pc_os_verify_update":
+\t\tout, err = pcOSVerifyUpdate(sarg(c.Args, "manifest_path"), sarg(c.Args, "artifact_path"))
+\tcase "pc_os_disk":
+\t\tout, err = pcOSDiskIntelligence()
+\tcase "pc_os_network":
+\t\tout, err = pcOSNetwork()
+\tcase "pc_os_security":
+\t\tout, err = pcOSSecurity()
+\tcase "pc_os_files":
+\t\tout, err = pcOSFileManager(sarg(c.Args, "path"))
+\tcase "pc_os_inventory":
+\t\tout, err = pcOSInventory()
+\tcase "pc_os_ai":
+\t\tout, err = pcOSLocalAI()
+\tcase "pc_os_zero_ui":
+\t\tout, err = pcOSZeroUI()
+\tcase "pc_os_disaster_recovery":
+\t\tout, err = pcOSDisasterRecovery()
+\tcase "support_bundle":'''
+if old not in text:
+    raise SystemExit('v5.1.0 command switch insertion point not found')
+text = text.replace(old, new, 1)
+
+# Start the shellless local health-state writer alongside the pre-existing cleanup
+# worker. It never restarts/stops/deletes business assets and never touches Hikvision.
+needle = '\tgo cleanupLoop()'
+if needle not in text:
+    raise SystemExit('cleanupLoop startup insertion point not found')
+text = text.replace(needle, needle + '\n\tgo pcOSBackgroundLoop()', 1)
+
+if '5.0.9' not in text:
+    raise SystemExit('expected v5.0.9 base version not found')
+text = text.replace('5.0.9', '5.1.0')
+main.write_text(text)
