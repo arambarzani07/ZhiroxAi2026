@@ -12,6 +12,7 @@ on:
       - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_windows_v510.go'
       - 'src/pc_os_update_enforce_v510.go'
+      - 'src/pc_os_self_updater_v510_windows.go'
       - 'src/update_trust_v510.go'
       - 'src/pc_os_v510_test.go'
       - 'src/pc_os_update_enforce_v510_test.go'
@@ -19,6 +20,7 @@ on:
       - 'ops/supabase/pc_os_v510.sql'
       - 'tools/patch_v510.py'
       - 'tools/patch_trust_v510.py'
+      - 'tools/patch_self_updater_v510.py'
       - 'tools/prepare_trust_v510.go'
       - 'tools/sign_metadata_v510.go'
       - 'tools/patch_downloader_v503.py'
@@ -85,9 +87,11 @@ jobs:
           cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
           cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
           cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
           cp src/update_trust_v510.go buildsrc/update_trust_v510.go
           python3 tools/patch_v510.py
           python3 tools/patch_trust_v510.py
+          python3 tools/patch_self_updater_v510.py
           gofmt -w buildsrc/*.go
 
       - name: Prepare pinned release trust anchor
@@ -110,6 +114,8 @@ jobs:
           grep -q 'pc_os_verify_update' buildsrc/main.go
           grep -q 'go pcOSBackgroundLoop()' buildsrc/main.go
           grep -q 'go pcOSCloudLoop()' buildsrc/main.go
+          grep -q 'go pcOSCompanionUpdaterLoop()' buildsrc/main.go
+          grep -q 'pcOSMaybeRunUpdaterMode' buildsrc/main.go
           grep -q 'func pcOSWindowsInventory' buildsrc/pc_os_windows_v510.go
           grep -q 'func pcOSWindowsGuardian' buildsrc/pc_os_windows_v510.go
           grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
@@ -125,8 +131,15 @@ jobs:
           grep -q 'pcOSPinnedUpdatePublicKeyHex' buildsrc/pc_os_v510.go
           grep -q 'Ed25519 update public key is not pinned in this build' buildsrc/pc_os_v510.go
           grep -q 'relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go
+          grep -q 'ZhiroxAISupervisor.exe.pre-vrollback-' buildsrc/pc_os_self_updater_v510_windows.go
+          grep -q 'health_gate_seconds' buildsrc/pc_os_self_updater_v510_windows.go
+          grep -q 'automatic_delete' buildsrc/pc_os_self_updater_v510_windows.go
           if grep -q 'update-public-key.hex' buildsrc/pc_os_v510.go; then
             echo 'Trust invariant failed: runtime verifier still reads a mutable public-key file.' >&2
+            exit 1
+          fi
+          if grep -Eqi 'powershell\.exe|cmd\.exe' buildsrc/pc_os_self_updater_v510_windows.go; then
+            echo 'Zero-UI updater invariant failed: shell executable reference found.' >&2
             exit 1
           fi
           if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go buildsrc/pc_os_update_enforce_v510.go; then
@@ -147,7 +160,7 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_update_enforce_v510.go update_trust_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
 
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
@@ -156,7 +169,7 @@ jobs:
           grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
           SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
           SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
-          printf '{"version":"5.1.0","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"publishable":false,"notes":"feature build only; auto-update trust intentionally fail-closed until signed main release"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          printf '{"version":"5.1.0","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"rollback_updater_embedded":true,"publishable":false,"notes":"feature build only; auto-update trust intentionally fail-closed until signed main release"}\n' "$SHA" "$SIZE" > channel/metadata.json
           sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
 
       - name: Sign release metadata
