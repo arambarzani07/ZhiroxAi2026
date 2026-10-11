@@ -7,11 +7,11 @@ import (
     "encoding/hex"
     "errors"
     "fmt"
+    "io"
     "os"
     "os/exec"
     "path/filepath"
     "regexp"
-    "strconv"
     "strings"
     "time"
 )
@@ -23,6 +23,28 @@ const (
 
 var pcOSDBNameRE = regexp.MustCompile(`^[A-Za-z0-9_ .()\-]{1,128}$`)
 
+type pcOSCappedBuffer struct {
+    buf bytes.Buffer
+    max int
+}
+
+func (b *pcOSCappedBuffer) Write(p []byte) (int, error) {
+    n := len(p)
+    remaining := b.max - b.buf.Len()
+    if remaining > 0 {
+        if len(p) > remaining {
+            _, _ = b.buf.Write(p[:remaining])
+        } else {
+            _, _ = b.buf.Write(p)
+        }
+    }
+    return n, nil
+}
+
+func (b *pcOSCappedBuffer) String() string {
+    return b.buf.String()
+}
+
 func pcOSFindSQLCmd() (string, error) {
     if p, err := exec.LookPath("sqlcmd.exe"); err == nil {
         return filepath.Clean(p), nil
@@ -33,23 +55,19 @@ func pcOSFindSQLCmd() (string, error) {
         `C:\Program Files (x86)\Microsoft SQL Server`,
     }
     for _, root := range roots {
+        var found string
         _ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
             if err != nil || d == nil {
                 return nil
             }
-            if d.IsDir() {
-                return nil
-            }
-            if strings.EqualFold(d.Name(), "sqlcmd.exe") {
-                roots = append(roots, "FOUND:"+filepath.Clean(path))
+            if !d.IsDir() && strings.EqualFold(d.Name(), "sqlcmd.exe") {
+                found = filepath.Clean(path)
                 return filepath.SkipAll
             }
             return nil
         })
-        for _, v := range roots {
-            if strings.HasPrefix(v, "FOUND:") {
-                return strings.TrimPrefix(v, "FOUND:"), nil
-            }
+        if found != "" {
+            return found, nil
         }
     }
     return "", errors.New("sqlcmd.exe not found")
@@ -64,7 +82,7 @@ func pcOSValidateDatabaseName(name string) (string, error) {
 }
 
 func pcOSQuoteSQLIdentifier(name string) string {
-    return "[" + strings.ReplaceAll(name, "]", "]]" ) + "]"
+    return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
 }
 
 func pcOSQuoteSQLString(value string) string {
@@ -84,13 +102,10 @@ func pcOSBackupDestination(raw, database string) (string, error) {
     if !filepath.IsAbs(abs) {
         return "", errors.New("backup destination must be absolute")
     }
-    lower := strings.ToLower(abs)
-    protected := strings.ToLower(filepath.Clean(`D:\DataBase`))
-    if pcOSPathWithin(lower, protected) {
+    if pcOSPathWithin(abs, filepath.Clean(`D:\DataBase`)) {
         return "", errors.New("backup destination cannot be inside protected production root D:\\DataBase")
     }
-    ext := strings.ToLower(filepath.Ext(abs))
-    if ext != ".bak" {
+    if strings.ToLower(filepath.Ext(abs)) != ".bak" {
         return "", errors.New("SQL backup destination must use .bak extension")
     }
     return abs, nil
@@ -100,7 +115,7 @@ func pcOSRunSQLCmd(ctx context.Context, sqlcmd, server, query string) (string, e
     if strings.TrimSpace(server) == "" {
         server = "localhost"
     }
-    // No shell: sqlcmd.exe is launched directly with CREATE_NO_WINDOW through hiddenCommandContext.
+    // No shell: sqlcmd.exe is launched directly and hidden by the existing Zero-UI helper.
     cmd := hiddenCommandContext(ctx, sqlcmd,
         "-S", server,
         "-E",
@@ -109,9 +124,10 @@ func pcOSRunSQLCmd(ctx context.Context, sqlcmd, server, query string) (string, e
         "-h", "-1",
         "-Q", query,
     )
-    var stdout, stderr bytes.Buffer
-    cmd.Stdout = &limitedBuffer{buf: stdout, limit: pcOSBackupMaxOutput}
-    cmd.Stderr = &limitedBuffer{buf: stderr, limit: pcOSBackupMaxOutput}
+    stdout := &pcOSCappedBuffer{max: pcOSBackupMaxOutput}
+    stderr := &pcOSCappedBuffer{max: pcOSBackupMaxOutput}
+    cmd.Stdout = stdout
+    cmd.Stderr = stderr
     err := cmd.Run()
     out := strings.TrimSpace(stdout.String())
     serr := strings.TrimSpace(stderr.String())
@@ -130,17 +146,17 @@ func pcOSRunSQLCmd(ctx context.Context, sqlcmd, server, query string) (string, e
 func pcOSSQLBackupReadiness(args map[string]interface{}) (interface{}, error) {
     sqlcmd, sqlErr := pcOSFindSQLCmd()
     result := map[string]interface{}{
-        "module":                    "smart_backup_vault",
-        "mode":                      "readiness",
-        "read_only":                 true,
-        "zero_ui":                   true,
-        "database_native_required":  true,
+        "module":                     "smart_backup_vault",
+        "mode":                       "readiness",
+        "read_only":                  true,
+        "zero_ui":                    true,
+        "database_native_required":   true,
         "raw_mdf_ldf_copy_supported": false,
-        "default_backup_root":       pcOSBackupDefaultRoot,
-        "protected_database_root":   filepath.Clean(`D:\DataBase`),
-        "execute_requires_approval": true,
-        "verify_only_supported":     true,
-        "hash_catalog_supported":    true,
+        "default_backup_root":        pcOSBackupDefaultRoot,
+        "protected_database_root":    filepath.Clean(`D:\DataBase`),
+        "execute_requires_approval":  true,
+        "verify_only_supported":      true,
+        "hash_catalog_supported":     true,
     }
     if sqlErr != nil {
         result["sqlcmd_ready"] = false
@@ -190,11 +206,11 @@ func pcOSSQLBackupReadiness(args map[string]interface{}) (interface{}, error) {
 }
 
 func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
-    path := sarg(args, "path")
-    if strings.TrimSpace(path) == "" {
+    rawPath := sarg(args, "path")
+    if strings.TrimSpace(rawPath) == "" {
         return nil, errors.New("path is required")
     }
-    abs, err := filepath.Abs(path)
+    abs, err := filepath.Abs(rawPath)
     if err != nil {
         return nil, err
     }
@@ -234,7 +250,7 @@ func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
     if err != nil {
         return nil, err
     }
-    _, copyErr := f.WriteTo(h)
+    _, copyErr := io.Copy(h, f)
     closeErr := f.Close()
     if copyErr != nil {
         return nil, copyErr
@@ -244,16 +260,16 @@ func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
     }
 
     return map[string]interface{}{
-        "module":       "smart_backup_vault",
-        "verified":     true,
+        "module":        "smart_backup_vault",
+        "verified":      true,
         "verify_method": "RESTORE VERIFYONLY WITH CHECKSUM",
-        "path":         abs,
-        "bytes":        info.Size(),
-        "sha256":       hex.EncodeToString(h.Sum(nil)),
-        "server":       server,
-        "sql_output":   output,
-        "read_only":    true,
-        "zero_ui":      true,
+        "path":          abs,
+        "bytes":         info.Size(),
+        "sha256":        hex.EncodeToString(h.Sum(nil)),
+        "server":        server,
+        "sql_output":    output,
+        "read_only":     true,
+        "zero_ui":       true,
     }, nil
 }
 
@@ -270,9 +286,6 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
     destination, err := pcOSBackupDestination(sarg(args, "destination"), database)
     if err != nil {
         return nil, err
-    }
-    if pcOSPathWithin(destination, filepath.Clean(`D:\DataBase`)) {
-        return nil, errors.New("critical protection lock blocks backup output under D:\\DataBase")
     }
 
     sqlcmd, err := pcOSFindSQLCmd()
@@ -321,21 +334,21 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
     verify, _ := verifyRaw.(map[string]interface{})
 
     return map[string]interface{}{
-        "module":          "smart_backup_vault",
-        "created":         true,
-        "database":        database,
-        "server":          server,
-        "destination":     destination,
-        "backup_type":     "SQL Server COPY_ONLY native full backup",
-        "checksum":        true,
-        "compression":     true,
-        "sql_output":      output,
-        "verification":    verify,
-        "immutable":       false,
-        "immutable_note":  "Hash-verified local backup; true WORM/immutable storage requires a separate immutable target.",
+        "module":            "smart_backup_vault",
+        "created":           true,
+        "database":          database,
+        "server":            server,
+        "destination":       destination,
+        "backup_type":       "SQL Server COPY_ONLY native full backup",
+        "checksum":          true,
+        "compression":       true,
+        "sql_output":        output,
+        "verification":      verify,
+        "immutable":         false,
+        "immutable_note":    "Hash-verified local backup; true WORM/immutable storage requires a separate immutable target.",
         "automatic_restore": false,
-        "zero_ui":         true,
-        "approval_bound":  true,
-        "timeout_minutes": strconv.Itoa(timeoutMinutes),
+        "zero_ui":           true,
+        "approval_bound":    true,
+        "timeout_minutes":   timeoutMinutes,
     }, nil
 }
