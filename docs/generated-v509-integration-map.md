@@ -1,0 +1,187 @@
+# Generated v5.0.9 integration source map
+
+## Function signatures
+- `admin_actions_v48.go`: `func psQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }`
+- `admin_actions_v48.go`: `func requireConfirm(args map[string]interface{}, key, phrase string) error {`
+- `admin_actions_v48.go`: `func safeRegistryPath(p string) (string, error) {`
+- `admin_actions_v48.go`: `func registryGetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func registrySetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func registryDeleteAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func envGetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func envSetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func envDeleteAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func firewallRulesAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func firewallRuleAddAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func firewallRuleDeleteAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func firewallRuleSetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func dnsSetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func dnsResetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func adapterSetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func ipv4SetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func printersAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func printerSetDefaultAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func printerQueuePurgeAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func driverInstallInfAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func msiInstallAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func msiUninstallAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func windowsFeatureSetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func timezoneInfoAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func timezoneSetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func computerRenameAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func defenderScanAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func defenderUpdateAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func powerPlanSetAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func archiveCreateAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func archiveExtractAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func copyFilePreserve(src, dst string, overwrite bool) (int64, error) {`
+- `admin_actions_v48.go`: `func directoryCopyAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func fileHashAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func sha256New() hashWriter { return newSHA256Writer() }`
+- `admin_actions_v48.go`: `func ownerBatchAction(args map[string]interface{}) (interface{}, error) {`
+- `admin_actions_v48.go`: `func extraCapabilitiesV48() interface{} {`
+- `hash_v48.go`: `func newSHA256Writer() hashWriter { return sha256.New() }`
+- `main.go`: `func randomHex(n int) string {`
+- `main.go`: `func executableDir() string {`
+- `main.go`: `func defaultConfig() Config {`
+- `main.go`: `func loadConfig() error {`
+- `main.go`: `func saveConfig() error {`
+- `main.go`: `func applyBackgroundFlags(cmd *exec.Cmd) {`
+- `main.go`: `func hiddenCommand(name string, args ...string) *exec.Cmd {`
+- `main.go`: `func hiddenCommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {`
+- `main.go`: `func fixedPowerShell(script string, timeout time.Duration) (string, error) {`
+- `main.go`: `func jsonPowerShell(script string, timeout time.Duration) (interface{}, error) {`
+- `main.go`: `func metricsSnapshot() (map[string]interface{}, error) {`
+- `main.go`: `func number(m map[string]interface{}, key string) float64 {`
+- `main.go`: `func healthFromMetrics(m map[string]interface{}) (int, []map[string]interface{}) {`
+- `main.go`: `func hardwareInventory() (interface{}, error) {`
+- `main.go`: `func diskInventory() (interface{}, error) {`
+- `main.go`: `func networkAdapters() (interface{}, error) {`
+- `main.go`: `func startupItems() (interface{}, error) {`
+- `main.go`: `func scheduledTasks() (interface{}, error) {`
+- `main.go`: `func driverInventory() (interface{}, error) {`
+- `main.go`: `func securityStatus() (interface{}, error) {`
+- `main.go`: `func windowsUpdateStatus() (interface{}, error) {`
+- `main.go`: `func systemSnapshot() (interface{}, error) {`
+- `main.go`: `func processList() (interface{}, error) {`
+- `main.go`: `func serviceList() (interface{}, error) {`
+- `main.go`: `func networkList() (interface{}, error) {`
+- `main.go`: `func recentEventErrors() (interface{}, error) {`
+- `main.go`: `func cleanAbs(p string) (string, error) {`
+- `main.go`: `func allowedPath(p string) (string, error) {`
+- `main.go`: `func listFiles(path string, limit int) (interface{}, error) {`
+- `main.go`: `func storageScan(path string, top int) (interface{}, error) {`
+- `main.go`: `func searchFiles(path, contains string, limit int) (interface{}, error) {`
+- `main.go`: `func readText(path string) (interface{}, error) {`
+- `main.go`: `func binaryPhraseProbe(path string, needle string) (interface{}, error) {`
+- `main.go`: `func containsCI(xs []string, s string) bool {`
+- `main.go`: `func restartService(name string, args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func approved(args map[string]interface{}) bool {`
+- `main.go`: `func findAllowedApp(name string) (string, bool) {`
+- `main.go`: `func processesForExecutable(abs string) (interface{}, error) {`
+- `main.go`: `func appStatus(name string) (interface{}, error) {`
+- `main.go`: `func runApp(name string, args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func restartApp(name string, args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func shutdownPC(args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func cancelShutdown(args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func flushDNS(args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func syncTime(args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func zeroUICertification(action string) map[string]interface{} {`
+- `main.go`: `func zeroUIAbsoluteGate(action string) error {`
+- `main.go`: `func remoteActionsInfo() interface{} {`
+- `main.go`: `func rebootPC(args map[string]interface{}) (interface{}, error) {`
+- `main.go`: `func createSupportBundle() (interface{}, error) {`
+- `main.go`: `func discoveryRoots(locationHint string) []string {`
+- `main.go`: `func discoverySkipDir(path string, name string) bool {`
+- `main.go`: `func findSystem(name string, locationHint string, limit int) (interface{}, error) {`
+- `main.go`: `func sarg(args map[string]interface{}, key string) string {`
+- `main.go`: `func iarg(args map[string]interface{}, key string, fallback int) int {`
+- `main.go`: `func executeCommand(c Command) CommandResult {`
+- `main.go`: `func relayHeaders(req *http.Request) {`
+- `main.go`: `func pairIfNeeded() error {`
+- `main.go`: `func sendHeartbeat() error {`
+- `main.go`: `func fetchCommand() (*Command, error) {`
+- `main.go`: `func postResult(r CommandResult) error {`
+- `main.go`: `func queueResult(r CommandResult) {`
+- `main.go`: `func flushResults() {`
+- `main.go`: `func versionParts(v string) []int {`
+- `main.go`: `func newerVersion(remote, current string) bool {`
+- `main.go`: `func updateURLAllowed(raw string) bool {`
+- `main.go`: `func absoluteUpdateURL(manifestURL, fileURL string) (string, error) {`
+- `main.go`: `func downloadWithAgentAuth(rawURL string) ([]byte, error) {`
+- `main.go`: `func checkForUpdate() error {`
+- `main.go`: `func autoUpdateLoop() {`
+- `main.go`: `func isManagedVersionArtifact(name string) bool {`
+- `main.go`: `func cleanupOldVersionArtifacts() ([]string, error) {`
+- `main.go`: `func cleanupSSISScaleOutLogsOnce() (int, int64, error) {`
+- `main.go`: `func cleanupLoop() {`
+- `main.go`: `func commandLoop() {`
+- `main.go`: `func heartbeatLoop() {`
+- `main.go`: `func setupLogging() {`
+- `main.go`: `func writeHealthMarker() {`
+- `main.go`: `func main() {`
+- `main.go`: `func zhiroxDoWithRetry(client *http.Client, req *http.Request, attempts int) (*http.Response, error) {`
+- `owner_actions.go`: `func boolArg(args map[string]interface{}, key string) bool {`
+- `owner_actions.go`: `func strArg(args map[string]interface{}, key string) string {`
+- `owner_actions.go`: `func intArg(args map[string]interface{}, key string, fallback int) int {`
+- `owner_actions.go`: `func stringSliceArg(args map[string]interface{}, key string) []string {`
+- `owner_actions.go`: `func ownerApproved(args map[string]interface{}) bool {`
+- `owner_actions.go`: `func requireOwnerApproval(args map[string]interface{}) error {`
+- `owner_actions.go`: `func protectedText(s string) bool {`
+- `owner_actions.go`: `func protectedPath(p string) bool {`
+- `owner_actions.go`: `func criticalProtectedText(s string) bool {`
+- `owner_actions.go`: `func guardCritical(values ...string) error {`
+- `owner_actions.go`: `func allowProtectedOverride(args map[string]interface{}) bool {`
+- `owner_actions.go`: `func guardProtected(args map[string]interface{}, values ...string) error {`
+- `owner_actions.go`: `func guardSelfModify(args map[string]interface{}, values ...string) error {`
+- `owner_actions.go`: `func sensitiveCommandBlocked(raw string) bool {`
+- `owner_actions.go`: `func (w *limitedBuffer) Write(p []byte) (int, error) {`
+- `owner_actions.go`: `func (w *limitedBuffer) String() string { return w.buf.String() }`
+- `owner_actions.go`: `func ownerExec(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func serviceControl(name, operation string, args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func serviceStartTypeSet(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func processTerminate(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func ownerPath(raw string, args map[string]interface{}, selfCheck bool) (string, error) {`
+- `owner_actions.go`: `func fileCopyAction(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func fileMoveAction(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func fileQuarantineAction(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func mkdirAction(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func fileDeleteAction(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func fileWriteTextAction(args map[string]interface{}) (interface{}, error) {`
+- `owner_actions.go`: `func isMutatingAction(action string) bool {`
+- `owner_actions.go`: `func writeOwnerAudit(c Command, r CommandResult) {`
+
+## Configuration field names
+- `AgentName`
+- `AgentID`
+- `Secret`
+- `PairingCode`
+- `RelayURL`
+- `PollSeconds`
+- `HeartbeatSeconds`
+- `AllowedRoots`
+- `AllowedApps`
+- `AllowedServices`
+- `EnableRunApps`
+- `EnableRestartApps`
+- `EnableRestartServices`
+- `EnableReboot`
+- `MaxReadBytes`
+- `AutoUpdate`
+- `UpdateIntervalMinutes`
+- `UpdateManifestURL`
+- `AutoCleanupOldVersions`
+- `CleanupDelaySeconds`
+- `BackgroundOnly`
+- `ZeroUIAbsolute`
+- `CommandOnly`
+- `FullControl`
+- `OwnerCommandUnlimited`
+- `RequireOwnerCommand`
+- `BusinessAutoModify`
+- `ProtectHikvision`
+- `MaxCommandOutputBytes`
+- `CommandTimeoutSeconds`
+
+## Relevant call relationships
+- `sendHeartbeat` is defined in `main.go`
+- `commandLoop` is defined in `main.go`
