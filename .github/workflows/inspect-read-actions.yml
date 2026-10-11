@@ -19,10 +19,9 @@ jobs:
           mkdir -p buildsrc
           cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
-      - name: Inspect relevant read actions
+      - name: Inspect exact read implementations
         run: |
-          grep -Rni -E 'read_text|search_files|func .*read|func .*search|max_command_output|allowedPath' buildsrc/*.go | head -200
-          echo '--- read_text context ---'
-          grep -Rni -B25 -A90 'read_text' buildsrc/*.go | head -350
-          echo '--- search_files context ---'
-          grep -Rni -B25 -A120 'search_files' buildsrc/*.go | head -400
+          echo '--- main.go lines 760-850 ---'
+          nl -ba buildsrc/main.go | sed -n '760,850p'
+          echo '--- allowedPath lines 600-660 ---'
+          nl -ba buildsrc/main.go | sed -n '600,660p'
