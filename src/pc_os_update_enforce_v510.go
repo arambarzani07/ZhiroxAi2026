@@ -14,6 +14,14 @@ import (
 // It operates entirely in memory so an unsigned/untrusted payload is never even
 // staged to disk. The pinned public key is loaded by pcOSLoadPublicKey().
 func pcOSVerifySignedUpdatePayload(version, expectedSHA string, expectedSize int64, signatureB64 string, payload []byte) (string, error) {
+    pub, err := pcOSLoadPublicKey()
+    if err != nil {
+        return "", err
+    }
+    return pcOSVerifySignedUpdatePayloadWithKey(version, expectedSHA, expectedSize, signatureB64, payload, pub)
+}
+
+func pcOSVerifySignedUpdatePayloadWithKey(version, expectedSHA string, expectedSize int64, signatureB64 string, payload []byte, pub ed25519.PublicKey) (string, error) {
     version = strings.TrimSpace(version)
     expectedSHA = strings.ToLower(strings.TrimSpace(expectedSHA))
     signatureB64 = strings.TrimSpace(signatureB64)
@@ -29,11 +37,6 @@ func pcOSVerifySignedUpdatePayload(version, expectedSHA string, expectedSize int
     actual := hex.EncodeToString(sum[:])
     if actual != expectedSHA {
         return "", errors.New("signed update SHA-256 mismatch")
-    }
-
-    pub, err := pcOSLoadPublicKey()
-    if err != nil {
-        return "", err
     }
     if len(pub) != ed25519.PublicKeySize {
         return "", errors.New("invalid pinned Ed25519 public key")
