@@ -40,3 +40,6 @@ jobs:
               sys.exit(4)
 
           print('SIGNING_READINESS=READY: secret exists and has valid Ed25519 seed shape')
+
+# Touching this workflow on the feature branch intentionally triggers a
+# non-disclosing signing-readiness check. No secret value is ever printed.
