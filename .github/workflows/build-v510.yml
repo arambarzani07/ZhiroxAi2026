@@ -11,7 +11,9 @@ on:
       - 'src/pc_os_v510.go'
       - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_windows_v510.go'
+      - 'src/pc_os_update_enforce_v510.go'
       - 'src/pc_os_v510_test.go'
+      - 'src/pc_os_update_enforce_v510_test.go'
       - 'ops/supabase/zhirox-pc-relay-v14.ts'
       - 'ops/supabase/pc_os_v510.sql'
       - 'tools/patch_v510.py'
@@ -43,7 +45,7 @@ jobs:
       - name: PC OS unit tests
         run: |
           set -euo pipefail
-          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_v510_test.go
+          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go
 
       - name: Relay type and compatibility checks
         run: |
@@ -79,6 +81,7 @@ jobs:
           cp src/pc_os_v510.go buildsrc/pc_os_v510.go
           cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
           cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
           python3 tools/patch_v510.py
           gofmt -w buildsrc/*.go
 
@@ -98,9 +101,12 @@ jobs:
           grep -qi 'database' buildsrc/owner_actions.go
           grep -q 'arbitrary_shell' buildsrc/pc_os_v510.go
           grep -q 'ed25519.Verify' buildsrc/pc_os_v510.go
+          grep -q 'pcOSVerifySignedUpdatePayload' buildsrc/main.go
+          grep -q 'signed manifest requires size and Ed25519 signature' buildsrc/main.go
+          grep -q 'func pcOSVerifySignedUpdatePayload' buildsrc/pc_os_update_enforce_v510.go
           grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
           grep -q 'relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go
-          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go; then
+          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go buildsrc/pc_os_update_enforce_v510.go; then
             echo 'Zero-UI invariant failed: executable shell launch reference found in PC OS modules.' >&2
             exit 1
           fi
@@ -118,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_update_enforce_v510.go
 
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
