@@ -14,8 +14,26 @@ create table if not exists public.pc_relay_command_approvals (
   expires_at timestamptz not null,
   used_at timestamptz,
   command_id uuid references public.pc_relay_commands(id) on delete set null,
-  check (expires_at > approved_at)
+  check (expires_at > approved_at),
+  constraint pc_relay_command_approvals_ttl_check
+    check (expires_at <= approved_at + interval '15 minutes')
 );
+
+-- Upgrade-safe constraint for projects where the approval table already exists.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'pc_relay_command_approvals_ttl_check'
+      and conrelid = 'public.pc_relay_command_approvals'::regclass
+  ) then
+    alter table public.pc_relay_command_approvals
+      add constraint pc_relay_command_approvals_ttl_check
+      check (expires_at <= approved_at + interval '15 minutes');
+  end if;
+end;
+$$;
 
 create index if not exists pc_relay_command_approvals_agent_idx
   on public.pc_relay_command_approvals(agent_id, approved_at desc);
