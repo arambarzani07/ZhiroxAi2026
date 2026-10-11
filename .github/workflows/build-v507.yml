@@ -58,10 +58,8 @@ jobs:
           grep -q 'operation != "start"' buildsrc/owner_actions.go
           grep -q 'guardCritical(abs)' buildsrc/main.go
           grep -q 'guardCritical(abs)' buildsrc/owner_actions.go
-          # Existing Hikvision lock must remain present and unchanged in principle.
           grep -q 'OVERRIDE_HIKVISION_LOCK' buildsrc/owner_actions.go
           grep -q 'zhirox-hikvision-gateway' buildsrc/owner_actions.go
-          # Existing health-gated Zhirox cleanup must remain intact.
           grep -q 'time.Sleep(120 \* time.Second)' buildsrc/main.go
           grep -q 'zhiroxaisupervisor.exe' buildsrc/main.go
           grep -q 'zhiroxcoreservice.exe' buildsrc/main.go
@@ -72,6 +70,7 @@ jobs:
       - name: Static protection assertions
         run: |
           python3 - <<'PY'
+          import re
           from pathlib import Path
           t = Path('buildsrc/owner_actions.go').read_text().lower()
           m = Path('buildsrc/main.go').read_text().lower()
@@ -92,7 +91,7 @@ jobs:
           for p in required_paths:
               assert p in t, p
           for name in ['cashier', 'admin', 'rls1000', 'rtlabel', 'rtplu', 'sqlservr', 'sqlagent', 'mssqlserver', 'sqlserveragent', 'sqlbrowser', 'sqlwriter', 'spooler', 'spoolsv']:
-              assert f'"{name}": true' in t, name
+              assert re.search(r'"' + re.escape(name) + r'"\s*:\s*true', t), name
           assert 'pid-only termination disabled by critical protection' in t
           assert 'if operation != "start"' in t
           assert 'if err := guardcritical(abs); err != nil' in m
