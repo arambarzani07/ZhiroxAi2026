@@ -1,0 +1,34 @@
+name: Inspect Protection v5.0.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-protection-v506.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore patched v5.0.6 source
+        run: |
+          mkdir -p buildsrc
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          gofmt -w buildsrc/*.go
+      - name: Inspect protection gates only
+        run: |
+          grep -Rni -A 120 -B 20 'func protectedPath' buildsrc || true
+          echo '--- ALLOWED PATH ---'
+          grep -Rni -A 100 -B 20 'func allowedPath' buildsrc || true
+          echo '--- FILE WRITE GATES ---'
+          grep -Rni -A 90 -B 15 'func fileDeleteAction\|func fileMoveAction\|func fileQuarantineAction\|func fileCopyAction\|func fileWriteTextAction\|func mkdirAction' buildsrc || true
+          echo '--- CLEANUP ---'
+          grep -Rni -A 170 -B 15 'func cleanupOldVersionArtifacts' buildsrc || true
