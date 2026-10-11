@@ -1,0 +1,28 @@
+name: Inspect Update Loop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-update-loop.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore current source
+        run: |
+          mkdir -p buildsrc
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+      - name: Inspect update scheduling only
+        run: |
+          grep -Rni -E -A 100 -B 20 'updateLoop|checkForUpdate|UpdateCheck|update_interval|check.*update' buildsrc || true
