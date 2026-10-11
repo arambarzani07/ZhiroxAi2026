@@ -1,0 +1,109 @@
+name: Generate v5.0.9 updater integration map
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/introspect-updater-v510.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  updater-map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore hardened source
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc docs
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+
+      - name: Extract updater-only source map
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          text = Path('buildsrc/main.go').read_text(errors='ignore')
+          wanted = [
+              'checkForUpdate', 'autoUpdateLoop', 'downloadWithAgentAuth',
+              'absoluteUpdateURL', 'updateURLAllowed', 'newerVersion',
+              'versionParts', 'writeHealthMarker', 'cleanupOldVersionArtifacts'
+          ]
+
+          def function_block(name):
+              m = re.search(r'(?m)^func\s+' + re.escape(name) + r'\s*\([^\n]*', text)
+              if not m:
+                  return None
+              start = m.start()
+              brace = text.find('{', m.start())
+              if brace < 0:
+                  return None
+              depth = 0
+              in_str = False
+              esc = False
+              for i in range(brace, len(text)):
+                  ch = text[i]
+                  if in_str:
+                      if esc:
+                          esc = False
+                      elif ch == '\\':
+                          esc = True
+                      elif ch == '"':
+                          in_str = False
+                      continue
+                  if ch == '"':
+                      in_str = True
+                  elif ch == '{':
+                      depth += 1
+                  elif ch == '}':
+                      depth -= 1
+                      if depth == 0:
+                          return text[start:i+1]
+              return None
+
+          out = ['# Generated updater integration map', '', '> Static source only; secrets/config values are not included.', '']
+          for name in wanted:
+              block = function_block(name)
+              if block:
+                  out += [f'## `{name}`', '', '```go', block, '```', '']
+
+          # Extract only the UpdateManifest type shape if present, not config values.
+          for type_name in ('UpdateManifest', 'updateManifest'):
+              m = re.search(r'(?m)^type\s+' + type_name + r'\s+struct\s*\{', text)
+              if m:
+                  brace = text.find('{', m.start())
+                  depth = 0
+                  for i in range(brace, len(text)):
+                      if text[i] == '{': depth += 1
+                      elif text[i] == '}':
+                          depth -= 1
+                          if depth == 0:
+                              out += [f'## `{type_name}`', '', '```go', text[m.start():i+1], '```', '']
+                              break
+          Path('docs/generated-v509-updater-map.md').write_text('\n'.join(out))
+          PY
+
+      - name: Commit updater map
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/generated-v509-updater-map.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate v5.0.9 updater map [skip ci]'
+            git push
+          fi
