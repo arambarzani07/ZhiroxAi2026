@@ -45,11 +45,7 @@ func pcOSUpdaterWriteState(root, status string, extra map[string]interface{}) {
         state[k] = v
     }
     raw, _ := json.MarshalIndent(state, "", "  ")
-    tmp := filepath.Join(root, "update-install-state.json.tmp")
-    final := filepath.Join(root, "update-install-state.json")
-    if os.WriteFile(tmp, raw, 0600) == nil {
-        _ = os.Rename(tmp, final)
-    }
+    _ = os.WriteFile(filepath.Join(root, "update-install-state.json"), raw, 0600)
 }
 
 func pcOSUpdaterValidatePaths(current, next, marker string) (string, error) {
@@ -119,14 +115,23 @@ func pcOSUpdaterMarkerHealthy(marker, targetVersion string, installedAfter time.
 
 func pcOSUpdaterRollback(root, current, backup string, launched *exec.Cmd, targetVersion string, cause error) error {
     if launched != nil && launched.Process != nil {
+        // Wait() is owned by the monitor goroutine. Kill only here; the rename
+        // retry loop waits for Windows to release the executable handle.
         _ = launched.Process.Kill()
-        _ = launched.Wait()
         time.Sleep(750 * time.Millisecond)
     }
 
     failed := filepath.Join(root, "ZhiroxAISupervisor.exe.failed-"+time.Now().UTC().Format("20060102T150405Z"))
     if _, err := os.Stat(current); err == nil {
-        _ = pcOSUpdaterWaitRename(current, failed, 20*time.Second)
+        if err := pcOSUpdaterWaitRename(current, failed, 20*time.Second); err != nil {
+            pcOSUpdaterWriteState(root, "rollback_failed", map[string]interface{}{
+                "target_version": targetVersion,
+                "cause": cause.Error(),
+                "failed_binary_move_error": err.Error(),
+                "backup": backup,
+            })
+            return err
+        }
     }
     if err := pcOSUpdaterWaitRename(backup, current, 20*time.Second); err != nil {
         pcOSUpdaterWriteState(root, "rollback_failed", map[string]interface{}{
@@ -142,6 +147,9 @@ func pcOSUpdaterRollback(root, current, backup string, launched *exec.Cmd, targe
     restored := pcOSUpdaterHiddenCommand(current)
     restored.Dir = root
     startErr := restored.Start()
+    if startErr == nil && restored.Process != nil {
+        _ = restored.Process.Release()
+    }
     extra := map[string]interface{}{
         "target_version": targetVersion,
         "cause": cause.Error(),
@@ -164,7 +172,7 @@ func pcOSRunUpdaterMode() error {
     if current == "" || next == "" || targetVersion == "" || expectedHash == "" || marker == "" || pidText == "" {
         return errors.New("updater refused: required arguments are missing")
     }
-    if _, err := strconv.Atoi(pidText); err != nil {
+    if sourcePID, err := strconv.Atoi(pidText); err != nil || sourcePID <= 0 {
         return errors.New("updater refused: invalid source pid")
     }
     if len(expectedHash) != 64 {
@@ -283,19 +291,20 @@ func pcOSEnsureSelfUpdater() error {
         return errors.New("self-updater staged copy integrity mismatch")
     }
 
-    backup := filepath.Join(root, "ZhiroxUpdater.exe.bak")
-    _ = os.Remove(backup)
+    previous := ""
     if _, err := os.Stat(updater); err == nil {
-        if err := os.Rename(updater, backup); err != nil { return err }
+        previous = filepath.Join(root, "ZhiroxUpdater.exe.pre-refresh-"+time.Now().UTC().Format("20060102T150405Z")+".bak")
+        if err := os.Rename(updater, previous); err != nil { return err }
     }
     if err := os.Rename(stage, updater); err != nil {
-        _ = os.Rename(backup, updater)
+        if previous != "" { _ = os.Rename(previous, updater) }
         return err
     }
     pcOSUpdaterWriteState(root, "companion_updater_refreshed", map[string]interface{}{
         "sha256": sourceHash,
         "updater": updater,
-        "previous_updater_backup": backup,
+        "previous_updater_backup": previous,
+        "automatic_delete": false,
     })
     return nil
 }
