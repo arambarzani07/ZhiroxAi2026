@@ -1,0 +1,126 @@
+name: Build Zhirox PC OS v5.1.0
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/build-v510.yml'
+      - 'src/pc_os_v510.go'
+      - 'tools/patch_v510.py'
+      - 'tools/sign_metadata_v510.go'
+      - 'tools/patch_downloader_v503.py'
+      - 'tools/patch_v505.py'
+      - 'tools/patch_v506.py'
+      - 'tools/patch_v507.py'
+      - 'tools/patch_v508.py'
+      - 'tools/patch_v509.py'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Restore source
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+
+      - name: Apply existing hardened patches
+        run: |
+          set -euo pipefail
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+
+      - name: Add PC OS v5.1.0 modules
+        run: |
+          set -euo pipefail
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          python3 tools/patch_v510.py
+          gofmt -w buildsrc/*.go
+
+      - name: Security invariants
+        run: |
+          set -euo pipefail
+          grep -q '5.1.0' buildsrc/main.go
+          grep -q 'pc_os_overview' buildsrc/main.go
+          grep -q 'pc_os_verify_update' buildsrc/main.go
+          grep -q 'go pcOSBackgroundLoop()' buildsrc/main.go
+          grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
+          grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
+          grep -q 'operation != "start"' buildsrc/owner_actions.go
+          grep -Fq 'D:\\DataBase' buildsrc/owner_actions.go
+          grep -q 'arbitrary_shell' buildsrc/pc_os_v510.go
+          grep -q 'ed25519.Verify' buildsrc/pc_os_v510.go
+          grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
+          if grep -Eqi 'exec\.Command\(|powershell|cmd\.exe' buildsrc/pc_os_v510.go; then
+            echo 'Zero-UI invariant failed: shell execution reference found in PC OS module.' >&2
+            exit 1
+          fi
+
+      - name: Windows compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go
+
+      - name: Unsigned branch metadata
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.1.0","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"publishable":false,"notes":"feature build only; release remains fail-closed until Ed25519 signing"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+
+      - name: Sign release metadata
+        if: github.ref == 'refs/heads/main'
+        env:
+          ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release.' >&2; exit 1; }
+          go run tools/sign_metadata_v510.go
+
+      - name: Upload verification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.0-${{ github.sha }}
+          path: |
+            channel/ZhiroxAISupervisor.exe
+            channel/ZhiroxAISupervisor.exe.sha256
+            channel/metadata.json
+          if-no-files-found: error
+
+      - name: Publish signed main release channel
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json channel/update-public-key.hex
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish signed Zhirox PC OS v5.1.0 [skip ci]'
+            git push
+          fi
