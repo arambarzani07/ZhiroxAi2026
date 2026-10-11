@@ -1,0 +1,73 @@
+name: Build Zhirox v5.0.9
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-v509.yml'
+      - 'tools/patch_v509.py'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Restore source
+        run: |
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+      - name: Apply patches
+        run: |
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+          gofmt -w buildsrc/*.go
+      - name: Verify read-only probe and critical locks
+        run: |
+          grep -q '5.0.9' buildsrc/main.go
+          grep -q 'binary_phrase_probe' buildsrc/main.go
+          grep -Fq 'D:\\DataBase\\Cashier.exe' buildsrc/main.go
+          grep -q 'read_only' buildsrc/main.go
+          grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
+          grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
+          grep -q 'operation != "start"' buildsrc/owner_actions.go
+      - name: Compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go test ./...
+      - name: Build
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go
+      - name: Metadata
+        run: |
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.0.9","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"notes":"Read-only guarded Cashier.exe binary phrase probe; v5.0.7 critical protections and v5.0.8 SSIS cleanup protections preserved"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+      - name: Publish
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Zhirox v5.0.9 [skip ci]'
+            git push
+          fi
