@@ -23,6 +23,6 @@ jobs:
           python3 tools/patch_v505.py
           python3 tools/patch_v506.py
           python3 tools/patch_v507.py
-      - name: Inspect cleanup/mutation action surfaces
+      - name: Inspect approval contract
         run: |
-          grep -Rni -E -A 60 -B 20 'storage_scan|storage_cleanup|file_delete|file_move|quarantine|temp|cache|cleanup' buildsrc || true
+          grep -Rni -E -A 50 -B 20 'func ownerApproved|func requireOwnerApproval|explicit approval required|owner_approved|approved' buildsrc/owner_actions.go buildsrc/main.go || true
