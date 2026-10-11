@@ -27,6 +27,7 @@ on:
       - 'tools/patch_self_updater_v510.py'
       - 'tools/prepare_trust_v510.go'
       - 'tools/sign_metadata_v510.go'
+      - 'tools/verify_metadata_v510.go'
       - 'tools/patch_downloader_v503.py'
       - 'tools/patch_v505.py'
       - 'tools/patch_v506.py'
@@ -203,6 +204,34 @@ jobs:
           go vet ./...
           go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
 
+      - name: Ephemeral signed-release preflight
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          cp -a buildsrc "$TMP/buildsrc"
+          mkdir -p "$TMP/channel"
+          ZHIROX_UPDATE_ED25519_SEED_B64=$(head -c 32 /dev/urandom | base64 -w0)
+          export ZHIROX_UPDATE_ED25519_SEED_B64
+          (
+            cd "$TMP"
+            go run "$GITHUB_WORKSPACE/tools/prepare_trust_v510.go"
+            gofmt -w buildsrc/update_trust_v510.go
+          )
+          (
+            cd "$TMP/buildsrc"
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
+          )
+          (
+            cd "$TMP"
+            go run "$GITHUB_WORKSPACE/tools/sign_metadata_v510.go"
+            go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go"
+            grep -q '"algorithm":"Ed25519"' channel/metadata.json
+            grep -Eq 'pcOSPinnedUpdatePublicKeyHex = "[0-9a-f]{64}"' buildsrc/update_trust_v510.go
+          )
+          unset ZHIROX_UPDATE_ED25519_SEED_B64
+
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
         run: |
@@ -222,6 +251,7 @@ jobs:
           set -euo pipefail
           test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release.' >&2; exit 1; }
           go run tools/sign_metadata_v510.go
+          go run tools/verify_metadata_v510.go
           grep -q '"algorithm":"Ed25519"' channel/metadata.json
           test -s channel/update-public-key.hex
 
