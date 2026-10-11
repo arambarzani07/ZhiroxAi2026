@@ -9,19 +9,12 @@ import (
     "fmt"
     "io"
     "os"
-    "os/exec"
     "path/filepath"
-    "regexp"
     "strings"
     "time"
 )
 
-const (
-    pcOSBackupDefaultRoot = `D:\ZhiroxBackups`
-    pcOSBackupMaxOutput   = 1024 * 1024
-)
-
-var pcOSDBNameRE = regexp.MustCompile(`^[A-Za-z0-9_ .()\-]{1,128}$`)
+const pcOSBackupMaxOutput = 1024 * 1024
 
 type pcOSCappedBuffer struct {
     buf bytes.Buffer
@@ -46,9 +39,8 @@ func (b *pcOSCappedBuffer) String() string {
 }
 
 func pcOSFindSQLCmd() (string, error) {
-    if p, err := exec.LookPath("sqlcmd.exe"); err == nil {
-        return filepath.Clean(p), nil
-    }
+    // Fail closed to Microsoft SQL Server installation roots. Do not trust an
+    // arbitrary PATH-provided executable for a privileged database backup.
     roots := []string{
         `C:\Program Files\Microsoft SQL Server\Client SDK\ODBC`,
         `C:\Program Files\Microsoft SQL Server`,
@@ -58,6 +50,12 @@ func pcOSFindSQLCmd() (string, error) {
         var found string
         _ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
             if err != nil || d == nil {
+                return nil
+            }
+            if d.Type()&os.ModeSymlink != 0 {
+                if d.IsDir() {
+                    return filepath.SkipDir
+                }
                 return nil
             }
             if !d.IsDir() && strings.EqualFold(d.Name(), "sqlcmd.exe") {
@@ -70,54 +68,22 @@ func pcOSFindSQLCmd() (string, error) {
             return found, nil
         }
     }
-    return "", errors.New("sqlcmd.exe not found")
+    return "", errors.New("trusted sqlcmd.exe not found under Microsoft SQL Server installation roots")
 }
 
-func pcOSValidateDatabaseName(name string) (string, error) {
-    name = strings.TrimSpace(name)
-    if !pcOSDBNameRE.MatchString(name) {
-        return "", errors.New("database name contains unsupported characters")
-    }
-    return name, nil
-}
-
-func pcOSQuoteSQLIdentifier(name string) string {
-    return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
-}
-
-func pcOSQuoteSQLString(value string) string {
-    return "N'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
-func pcOSBackupDestination(raw, database string) (string, error) {
-    if strings.TrimSpace(raw) == "" {
-        stamp := time.Now().UTC().Format("20060102T150405Z")
-        raw = filepath.Join(pcOSBackupDefaultRoot, database, database+"-"+stamp+".bak")
-    }
-    abs, err := filepath.Abs(raw)
-    if err != nil {
-        return "", err
-    }
-    abs = filepath.Clean(abs)
-    if !filepath.IsAbs(abs) {
-        return "", errors.New("backup destination must be absolute")
-    }
-    if pcOSPathWithin(abs, filepath.Clean(`D:\DataBase`)) {
-        return "", errors.New("backup destination cannot be inside protected production root D:\\DataBase")
-    }
-    if strings.ToLower(filepath.Ext(abs)) != ".bak" {
-        return "", errors.New("SQL backup destination must use .bak extension")
-    }
-    return abs, nil
+func pcOSResolveLocalSQLServer(raw string) (string, error) {
+    hostname, _ := os.Hostname()
+    return pcOSValidateLocalSQLServer(raw, hostname)
 }
 
 func pcOSRunSQLCmd(ctx context.Context, sqlcmd, server, query string) (string, error) {
-    if strings.TrimSpace(server) == "" {
-        server = "localhost"
+    validatedServer, err := pcOSResolveLocalSQLServer(server)
+    if err != nil {
+        return "", err
     }
     // No shell: sqlcmd.exe is launched directly and hidden by the existing Zero-UI helper.
     cmd := hiddenCommandContext(ctx, sqlcmd,
-        "-S", server,
+        "-S", validatedServer,
         "-E",
         "-b",
         "-W",
@@ -128,7 +94,7 @@ func pcOSRunSQLCmd(ctx context.Context, sqlcmd, server, query string) (string, e
     stderr := &pcOSCappedBuffer{max: pcOSBackupMaxOutput}
     cmd.Stdout = stdout
     cmd.Stderr = stderr
-    err := cmd.Run()
+    err = cmd.Run()
     out := strings.TrimSpace(stdout.String())
     serr := strings.TrimSpace(stderr.String())
     if err != nil {
@@ -153,6 +119,8 @@ func pcOSSQLBackupReadiness(args map[string]interface{}) (interface{}, error) {
         "database_native_required":   true,
         "raw_mdf_ldf_copy_supported": false,
         "default_backup_root":        pcOSBackupDefaultRoot,
+        "write_scope":                 "D:\\ZhiroxBackups only",
+        "sql_target_scope":            "local host/instance only",
         "protected_database_root":    filepath.Clean(`D:\DataBase`),
         "execute_requires_approval":  true,
         "verify_only_supported":      true,
@@ -166,10 +134,13 @@ func pcOSSQLBackupReadiness(args map[string]interface{}) (interface{}, error) {
     result["sqlcmd_ready"] = true
     result["sqlcmd_path"] = sqlcmd
 
-    server := sarg(args, "server")
-    if strings.TrimSpace(server) == "" {
-        server = "localhost"
+    server, err := pcOSResolveLocalSQLServer(sarg(args, "server"))
+    if err != nil {
+        result["server_policy_ok"] = false
+        result["server_policy_error"] = err.Error()
+        return result, nil
     }
+    result["server_policy_ok"] = true
     result["server"] = server
 
     ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -206,20 +177,9 @@ func pcOSSQLBackupReadiness(args map[string]interface{}) (interface{}, error) {
 }
 
 func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
-    rawPath := sarg(args, "path")
-    if strings.TrimSpace(rawPath) == "" {
-        return nil, errors.New("path is required")
-    }
-    abs, err := filepath.Abs(rawPath)
+    abs, err := pcOSValidateBackupPath(sarg(args, "path"))
     if err != nil {
         return nil, err
-    }
-    abs = filepath.Clean(abs)
-    if strings.ToLower(filepath.Ext(abs)) != ".bak" {
-        return nil, errors.New("verify path must be a .bak file")
-    }
-    if pcOSPathWithin(abs, filepath.Clean(`D:\DataBase`)) {
-        return nil, errors.New("protected production root is not a backup verification target")
     }
     info, err := os.Stat(abs)
     if err != nil {
@@ -233,9 +193,9 @@ func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
     if err != nil {
         return nil, err
     }
-    server := sarg(args, "server")
-    if strings.TrimSpace(server) == "" {
-        server = "localhost"
+    server, err := pcOSResolveLocalSQLServer(sarg(args, "server"))
+    if err != nil {
+        return nil, err
     }
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
     defer cancel()
@@ -270,6 +230,7 @@ func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
         "sql_output":    output,
         "read_only":     true,
         "zero_ui":       true,
+        "vault_bound":   true,
     }, nil
 }
 
@@ -278,10 +239,8 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
     if err != nil {
         return nil, err
     }
-    confirm := strings.TrimSpace(sarg(args, "confirm"))
-    expectedConfirm := "BACKUP " + database
-    if confirm != expectedConfirm {
-        return nil, fmt.Errorf("explicit confirmation required: %s", expectedConfirm)
+    if err := pcOSValidateBackupConfirm(database, sarg(args, "confirm")); err != nil {
+        return nil, err
     }
     destination, err := pcOSBackupDestination(sarg(args, "destination"), database)
     if err != nil {
@@ -292,9 +251,9 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
     if err != nil {
         return nil, err
     }
-    server := sarg(args, "server")
-    if strings.TrimSpace(server) == "" {
-        server = "localhost"
+    server, err := pcOSResolveLocalSQLServer(sarg(args, "server"))
+    if err != nil {
+        return nil, err
     }
 
     if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
@@ -349,6 +308,8 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
         "automatic_restore": false,
         "zero_ui":           true,
         "approval_bound":    true,
+        "vault_bound":       true,
+        "local_sql_only":    true,
         "timeout_minutes":   timeoutMinutes,
     }, nil
 }
