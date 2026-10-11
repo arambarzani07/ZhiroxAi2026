@@ -74,8 +74,13 @@ func pcOSValidateBackupPath(raw string) (string, error) {
     }
     lowerCandidate := strings.ToLower(candidate)
     lowerRoot := strings.ToLower(root)
-    if !strings.HasPrefix(lowerCandidate, lowerRoot+`\`) {
+    prefix := lowerRoot + `\`
+    if !strings.HasPrefix(lowerCandidate, prefix) {
         return "", errors.New("backup path must stay inside D:\\ZhiroxBackups")
+    }
+    relative := candidate[len(root)+1:]
+    if relative == "" || strings.Contains(relative, `\`) {
+        return "", errors.New("backup files must be stored directly in D:\\ZhiroxBackups; nested paths are not allowed")
     }
     if !strings.HasSuffix(lowerCandidate, ".bak") {
         return "", errors.New("SQL backup path must use .bak extension")
@@ -90,7 +95,7 @@ func pcOSBackupDestination(raw, database string) (string, error) {
     }
     if strings.TrimSpace(raw) == "" {
         stamp := time.Now().UTC().Format("20060102T150405Z")
-        raw = pcOSBackupDefaultRoot + `\` + database + `\` + database + "-" + stamp + ".bak"
+        raw = pcOSBackupDefaultRoot + `\` + database + "-" + stamp + ".bak"
     }
     return pcOSValidateBackupPath(raw)
 }
