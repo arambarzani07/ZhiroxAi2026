@@ -16,8 +16,9 @@ on:
       - 'src/update_trust_v510.go'
       - 'src/pc_os_v510_test.go'
       - 'src/pc_os_update_enforce_v510_test.go'
-      - 'ops/supabase/zhirox-pc-relay-v14.ts'
+      - 'ops/supabase/zhirox-pc-relay-v15.ts'
       - 'ops/supabase/pc_os_v510.sql'
+      - 'ops/supabase/pc_relay_approval_gate.sql'
       - 'tools/patch_v510.py'
       - 'tools/patch_trust_v510.py'
       - 'tools/patch_self_updater_v510.py'
@@ -52,16 +53,34 @@ jobs:
           set -euo pipefail
           go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go
 
-      - name: Relay type and compatibility checks
+      - name: Relay type, compatibility and approval-gate checks
         run: |
           set -euo pipefail
-          deno check ops/supabase/zhirox-pc-relay-v14.ts
-          grep -q 'pc_os_min_agent:"5.1.0"' ops/supabase/zhirox-pc-relay-v14.ts
-          grep -q 'agent_version_not_pc_os_capable' ops/supabase/zhirox-pc-relay-v14.ts
-          grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v14.ts
-          grep -q 'sanitizeForPostgres' ops/supabase/zhirox-pc-relay-v14.ts
-          grep -q 'RESULT_MAX_JSON_BYTES=1500000' ops/supabase/zhirox-pc-relay-v14.ts
-          grep -q 'result_sanitizer:true' ops/supabase/zhirox-pc-relay-v14.ts
+          deno check ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'pc_os_min_agent:"5.1.0"' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'agent_version_not_pc_os_capable' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'sanitizeForPostgres' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'RESULT_MAX_JSON_BYTES=1500000' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'result_sanitizer:true' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'structured_universal:true' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'MUTATION_ACTIONS' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'approval_required' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'enqueue_approved_pc_relay_command' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'binaryReadRefused' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -qi 'security definer' ops/supabase/pc_relay_approval_gate.sql
+          grep -q 'approval_args_mismatch' ops/supabase/pc_relay_approval_gate.sql
+          grep -qi 'grant execute.*service_role' ops/supabase/pc_relay_approval_gate.sql
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('ops/supabase/zhirox-pc-relay-v15.ts').read_text()
+          start=s.index('if(MUTATION_ACTIONS.has(action))')
+          end=s.index('return json({ok:false,error:"action_not_allowed"}', start)
+          block=s[start:end]
+          assert '.rpc("enqueue_approved_pc_relay_command"' in block
+          assert '.from("pc_relay_commands").insert' not in block
+          assert 'approval_required' in block
+          PY
 
       - name: Restore source
         run: |
