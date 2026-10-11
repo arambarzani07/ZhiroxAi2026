@@ -82,8 +82,8 @@ func criticalProtectedText(s string) bool {
         }
     }
 
-    // Registry roots whose destructive modification can stop Windows or the
-    // business SQL stack. Matching is deliberately prefix-based inside HKLM.
+    // Registry roots are classified here for future structured guards. Generic
+    // file mutation does not use registry paths.
     registryRoots := []string{
         `hklm:\system`,
         `hkey_local_machine\system`,
@@ -181,33 +181,12 @@ owner_text = must_replace(owner_text, old, new, 'serviceControl critical lock')
 # serviceStartTypeSet: startup configuration of critical services is immutable.
 old = '''\tif name == "" {\n\t\treturn nil, errors.New("service name is required")\n\t}\n\tif err := guardProtected(args, name); err != nil {'''
 new = '''\tif name == "" {\n\t\treturn nil, errors.New("service name is required")\n\t}\n\tif err := guardCritical(name); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := guardProtected(args, name); err != nil {'''
-# The first matching block has already been changed in serviceControl, so this
-# targets the remaining original block in serviceStartTypeSet.
 owner_text = must_replace(owner_text, old, new, 'serviceStartTypeSet critical lock')
 
 # processTerminate: close PID-only bypass, then guard process name/path.
 old = '''\tif pid <= 0 && name == "" && path == "" {\n\t\treturn nil, errors.New("pid, name, or path is required")\n\t}\n\tif err := guardProtected(args, name, path); err != nil {'''
 new = '''\tif pid <= 0 && name == "" && path == "" {\n\t\treturn nil, errors.New("pid, name, or path is required")\n\t}\n\tif pid > 0 {\n\t\treturn nil, errors.New("PID-only termination disabled by critical protection; use an explicit non-critical process name or path")\n\t}\n\tif err := guardCritical(name, path); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := guardProtected(args, name, path); err != nil {'''
 owner_text = must_replace(owner_text, old, new, 'processTerminate PID/critical lock')
-
-# Registry destructive writes: apply non-overridable Windows/SQL registry lock.
-for label in ('registrySetAction', 'registryDeleteAction'):
-    # Insert guardCritical immediately before the existing Hikvision guard in
-    # each registry function. Use a bounded split by function marker.
-    fmark = f'func {label}('
-    start = owner_text.find(fmark)
-    if start < 0:
-        raise SystemExit(f'{label} not found')
-    next_func = owner_text.find('\nfunc ', start + len(fmark))
-    if next_func < 0:
-        next_func = len(owner_text)
-    chunk = owner_text[start:next_func]
-    needle = '''\tif err := guardProtected(args, p); err != nil {\n\t\treturn nil, err\n\t}'''
-    repl = '''\tif err := guardCritical(p); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := guardProtected(args, p); err != nil {\n\t\treturn nil, err\n\t}'''
-    if needle not in chunk:
-        raise SystemExit(f'{label}: guardProtected block not found')
-    chunk = chunk.replace(needle, repl, 1)
-    owner_text = owner_text[:start] + chunk + owner_text[next_func:]
 
 owner.write_text(owner_text)
 
