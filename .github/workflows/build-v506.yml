@@ -1,0 +1,79 @@
+name: Build Zhirox v5.0.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-v506.yml'
+      - 'tools/patch_downloader_v503.py'
+      - 'tools/patch_v505.py'
+      - 'tools/patch_v506.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Restore source
+        run: |
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+      - name: Apply v5.0.6 patches
+        run: |
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          gofmt -w buildsrc/*.go
+      - name: Verify clean runtime policy
+        run: |
+          grep -q '5.0.6' buildsrc/main.go
+          grep -q 'time.Sleep(120 \* time.Second)' buildsrc/main.go
+          grep -q 'ZhiroxCoreService.exe.pre-v4.8.bak' buildsrc/main.go
+          grep -q 'ZhiroxUpdater.exe.pre-v4.8.bak' buildsrc/main.go
+          grep -q 'config.json.pre-v4.8.bak' buildsrc/main.go
+          grep -q 'install-success-v4.5.txt' buildsrc/main.go
+          grep -q 'install-v4.8.log' buildsrc/main.go
+          grep -q 'install-v4.9.log' buildsrc/main.go
+          grep -q 'install-v5.0.log' buildsrc/main.go
+          grep -q 'zhiroxaisupervisor.exe' buildsrc/main.go
+          grep -q 'zhiroxcoreservice.exe' buildsrc/main.go
+          grep -q 'zhiroxupdater.exe' buildsrc/main.go
+          grep -q 'config.json' buildsrc/main.go
+          grep -q 'update-health.json' buildsrc/main.go
+      - name: Compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go test ./...
+      - name: Build background supervisor
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go
+      - name: Create metadata
+        run: |
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.0.6","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"notes":"Clean Runtime: after fixed health gate, remove audited obsolete v4.x/v5.0 installer and pre-version backup files while protecting active Supervisor, Updater, Core Service, config, update health and runtime support; Zero-UI preserved"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+      - name: Publish channel
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Zhirox v5.0.6 [skip ci]'
+            git push
+          fi
