@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - 'ops/supabase/zhirox-pc-relay-v15.ts'
+      - '.github/workflows/validate-backup-routes-v510.yml'
 
 permissions:
   contents: read
