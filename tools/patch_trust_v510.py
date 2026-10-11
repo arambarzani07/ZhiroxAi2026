@@ -69,4 +69,10 @@ replacement = r'''func pcOSLoadPublicKey() (ed25519.PublicKey, error) {
 text = replace_go_func(text, 'pcOSLoadPublicKey', replacement)
 if 'update-public-key.hex' in text[text.find('func pcOSLoadPublicKey('):text.find('func pcOSVerifyUpdateWithKey(')]:
     raise SystemExit('mutable update public-key file reference remains in pcOSLoadPublicKey')
+
+# fmt was used only by the former mutable-file loader. The pinned trust loader
+# no longer needs it; remove the dead import so go vet stays strict.
+text = text.replace('    "fmt"\n', '', 1)
+text = text.replace('\t"fmt"\n', '', 1)
+
 p.write_text(text)
