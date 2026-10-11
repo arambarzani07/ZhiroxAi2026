@@ -1,0 +1,140 @@
+name: Explicit Zhirox PC OS v5.1.0 channel cutover
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type PROMOTE-ZHIROX-PC-OS-5.1.0 exactly'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  stage-production-channel:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Require explicit cutover confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM" = 'PROMOTE-ZHIROX-PC-OS-5.1.0' || {
+            echo 'Refusing production channel cutover: confirmation phrase mismatch.' >&2
+            exit 1
+          }
+
+      - name: Re-verify signed candidate and release provenance
+        run: |
+          set -euo pipefail
+          CANDIDATE='release-candidates/v5.1.0'
+          test -s "$CANDIDATE/ZhiroxAISupervisor.exe"
+          test -s "$CANDIDATE/ZhiroxAISupervisor.exe.sha256"
+          test -s "$CANDIDATE/metadata.json"
+          test -s "$CANDIDATE/update-public-key.hex"
+          test -s "$CANDIDATE/provenance.json"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('release-candidates/v5.1.0')
+          meta=json.loads((root/'metadata.json').read_text())
+          prov=json.loads((root/'provenance.json').read_text())
+          assert meta.get('version') == '5.1.0', 'candidate version mismatch'
+          assert meta.get('algorithm') == 'Ed25519', 'candidate is not Ed25519 signed'
+          assert prov.get('version') == '5.1.0', 'provenance version mismatch'
+          assert prov.get('signed') is True, 'candidate provenance is not signed'
+          assert prov.get('production_promoted') is False, 'candidate already marked promoted'
+          assert prov.get('promotion_requires_explicit_cutover') is True, 'explicit-cutover invariant missing'
+          PY
+
+          VERIFY_ROOT=$(mktemp -d)
+          trap 'rm -rf "$VERIFY_ROOT"' EXIT
+          mkdir -p "$VERIFY_ROOT/channel"
+          cp "$CANDIDATE/ZhiroxAISupervisor.exe" "$VERIFY_ROOT/channel/"
+          cp "$CANDIDATE/ZhiroxAISupervisor.exe.sha256" "$VERIFY_ROOT/channel/"
+          cp "$CANDIDATE/metadata.json" "$VERIFY_ROOT/channel/"
+          cp "$CANDIDATE/update-public-key.hex" "$VERIFY_ROOT/channel/"
+          (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go")
+
+      - name: Preserve immutable pre-v5.1.0 rollback channel
+        run: |
+          set -euo pipefail
+          ROLLBACK='release-rollbacks/pre-v5.1.0'
+          test ! -e "$ROLLBACK" || {
+            echo 'Refusing to overwrite an existing rollback snapshot.' >&2
+            exit 1
+          }
+          mkdir -p "$ROLLBACK"
+          cp channel/ZhiroxAISupervisor.exe "$ROLLBACK/ZhiroxAISupervisor.exe"
+          cp channel/ZhiroxAISupervisor.exe.sha256 "$ROLLBACK/ZhiroxAISupervisor.exe.sha256"
+          cp channel/metadata.json "$ROLLBACK/metadata.json"
+          if test -f channel/update-public-key.hex; then
+            cp channel/update-public-key.hex "$ROLLBACK/update-public-key.hex"
+          fi
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path('release-rollbacks/pre-v5.1.0')
+          meta=json.loads((p/'metadata.json').read_text())
+          out={
+            'captured_from':'channel',
+            'captured_before_version':'5.1.0',
+            'previous_version':meta.get('version'),
+            'previous_artifact_sha256':hashlib.sha256((p/'ZhiroxAISupervisor.exe').read_bytes()).hexdigest(),
+            'source_commit':os.environ['GITHUB_SHA'],
+            'immutable_snapshot':True,
+          }
+          (p/'provenance.json').write_text(json.dumps(out,separators=(',',':'))+'\n')
+          PY
+
+      - name: Stage signed v5.1.0 into repository production channel
+        run: |
+          set -euo pipefail
+          CANDIDATE='release-candidates/v5.1.0'
+          cp "$CANDIDATE/ZhiroxAISupervisor.exe" channel/ZhiroxAISupervisor.exe
+          cp "$CANDIDATE/ZhiroxAISupervisor.exe.sha256" channel/ZhiroxAISupervisor.exe.sha256
+          cp "$CANDIDATE/metadata.json" channel/metadata.json
+          cp "$CANDIDATE/update-public-key.hex" channel/update-public-key.hex
+          go run tools/verify_metadata_v510.go
+
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          out={
+            'version':'5.1.0',
+            'channel_staged':True,
+            'relay_cutover_required':True,
+            'agent_rollout_started':False,
+            'source_commit':os.environ['GITHUB_SHA'],
+            'workflow_run_id':os.environ['GITHUB_RUN_ID'],
+          }
+          Path('release-promotions').mkdir(exist_ok=True)
+          Path('release-promotions/v5.1.0.json').write_text(json.dumps(out,separators=(',',':'))+'\n')
+          PY
+
+      - name: Commit staged channel without starting agent rollout
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel release-rollbacks/pre-v5.1.0 release-promotions/v5.1.0.json
+          git diff --cached --quiet && {
+            echo 'Nothing to promote; refusing ambiguous cutover.' >&2
+            exit 1
+          }
+          git commit -m 'Stage signed Zhirox PC OS v5.1.0 production channel [skip ci]'
+          git push origin HEAD:main
+
+          echo 'Repository channel is staged. Agent rollout is intentionally NOT started here.'
+          echo 'Next gate: deploy a relay manifest whose signed v5.1.0 metadata exactly matches channel/metadata.json.'
