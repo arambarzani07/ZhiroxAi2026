@@ -15,20 +15,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply deterministic relay/workflow patch
+      - name: Apply deterministic relay patch
         run: |
           set -euo pipefail
           python3 tools/harden_backup_routes_v510.py
           grep -q 'pc_os_backup_readiness' ops/supabase/zhirox-pc-relay-v15.ts
           grep -q 'pc_os_backup_verify' ops/supabase/zhirox-pc-relay-v15.ts
           grep -q 'pc_os_backup_execute' ops/supabase/zhirox-pc-relay-v15.ts
-      - name: Commit hardened routes
+      - name: Commit hardened relay routes
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ops/supabase/zhirox-pc-relay-v15.ts .github/workflows/build-v510.yml
+          git add ops/supabase/zhirox-pc-relay-v15.ts
           if ! git diff --cached --quiet; then
-            git commit -m 'Route SQL backup execute through one-time mutation approval [skip ci]'
+            git commit -m 'Route SQL backup execute through one-time mutation approval'
             git push
           fi
