@@ -11,6 +11,8 @@ on:
       - 'src/pc_os_v510.go'
       - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_windows_v510.go'
+      - 'src/pc_os_backup_policy_v510.go'
+      - 'src/pc_os_backup_policy_v510_test.go'
       - 'src/pc_os_backup_v510_windows.go'
       - 'src/pc_os_update_enforce_v510.go'
       - 'src/pc_os_self_updater_v510_windows.go'
@@ -52,7 +54,7 @@ jobs:
       - name: PC OS unit tests
         run: |
           set -euo pipefail
-          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go
+          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_backup_policy_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go src/pc_os_backup_policy_v510_test.go
 
       - name: Relay type, compatibility and approval-gate checks
         run: |
@@ -110,6 +112,7 @@ jobs:
           cp src/pc_os_v510.go buildsrc/pc_os_v510.go
           cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
           cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
           cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
           cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
           cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
@@ -146,6 +149,9 @@ jobs:
           grep -q 'func pcOSSQLBackupReadiness' buildsrc/pc_os_backup_v510_windows.go
           grep -q 'func pcOSSQLBackupVerify' buildsrc/pc_os_backup_v510_windows.go
           grep -q 'func pcOSSQLBackupExecute' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'D:\\ZhiroxBackups' buildsrc/pc_os_backup_policy_v510.go
+          grep -q 'remote SQL Server targets are not allowed' buildsrc/pc_os_backup_policy_v510.go
+          grep -q 'backup path must stay inside' buildsrc/pc_os_backup_policy_v510.go
           grep -q 'BACKUP DATABASE' buildsrc/pc_os_backup_v510_windows.go
           grep -q 'RESTORE VERIFYONLY' buildsrc/pc_os_backup_v510_windows.go
           grep -q 'COPY_ONLY, CHECKSUM, COMPRESSION' buildsrc/pc_os_backup_v510_windows.go
@@ -195,13 +201,14 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
 
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
         run: |
           set -euo pipefail
           grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
+          test ! -e channel/update-public-key.hex
           SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
           SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
           printf '{"version":"5.1.0","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"rollback_updater_embedded":true,"publishable":false,"notes":"feature build only; auto-update trust intentionally fail-closed until signed main release"}\n' "$SHA" "$SIZE" > channel/metadata.json
