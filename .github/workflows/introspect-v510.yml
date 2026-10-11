@@ -1,0 +1,96 @@
+name: Generate v5.1 integration source map
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/introspect-v510.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  source-map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore hardened source
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc docs
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+
+      - name: Generate non-secret integration map
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          roots = list(Path('buildsrc').glob('*.go'))
+          out = ['# Generated v5.0.9 integration source map', '', '## Function signatures']
+          for p in roots:
+              text = p.read_text(errors='ignore')
+              for m in re.finditer(r'(?m)^func\s+(?:\([^\n]+\)\s*)?([A-Za-z0-9_]+)\s*\(([^\n]*)', text):
+                  sig = m.group(0).strip()
+                  out.append(f'- `{p.name}`: `{sig}`')
+
+          out += ['', '## Configuration field names']
+          seen = set()
+          for p in roots:
+              text = p.read_text(errors='ignore')
+              for marker in ('type Config struct', 'type config struct'):
+                  i = text.find(marker)
+                  if i < 0:
+                      continue
+                  b = text.find('{', i)
+                  depth = 0
+                  end = b
+                  for j in range(b, len(text)):
+                      if text[j] == '{': depth += 1
+                      elif text[j] == '}':
+                          depth -= 1
+                          if depth == 0:
+                              end = j + 1
+                              break
+                  block = text[b+1:end-1]
+                  for line in block.splitlines():
+                      line = line.strip()
+                      if not line or line.startswith('//'):
+                          continue
+                      name = line.split()[0] if line.split() else ''
+                      if re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', name) and name not in seen:
+                          seen.add(name)
+                          out.append(f'- `{name}`')
+
+          out += ['', '## Relevant call relationships']
+          wanted = ['sendHeartbeat', 'collectMetrics', 'collectHealth', 'handleCommand', 'commandLoop', 'updateLoop']
+          for p in roots:
+              text = p.read_text(errors='ignore')
+              for name in wanted:
+                  if f'func {name}(' in text:
+                      out.append(f'- `{name}` is defined in `{p.name}`')
+
+          Path('docs/generated-v509-integration-map.md').write_text('\n'.join(out) + '\n')
+          PY
+
+      - name: Commit generated source map
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/generated-v509-integration-map.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'Generate v5.0.9 integration source map [skip ci]'
+            git push
+          fi
