@@ -9,7 +9,10 @@ on:
     paths:
       - '.github/workflows/build-v510.yml'
       - 'src/pc_os_v510.go'
+      - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_v510_test.go'
+      - 'ops/supabase/zhirox-pc-relay-v13.ts'
+      - 'ops/supabase/pc_os_v510.sql'
       - 'tools/patch_v510.py'
       - 'tools/sign_metadata_v510.go'
       - 'tools/patch_downloader_v503.py'
@@ -32,10 +35,22 @@ jobs:
         with:
           go-version: '1.23.x'
 
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: PC OS unit tests
         run: |
           set -euo pipefail
-          go test src/pc_os_v510.go src/pc_os_v510_test.go
+          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_v510_test.go
+
+      - name: Relay type and compatibility checks
+        run: |
+          set -euo pipefail
+          deno check ops/supabase/zhirox-pc-relay-v13.ts
+          grep -q 'pc_os_min_agent: "5.1.0"' ops/supabase/zhirox-pc-relay-v13.ts
+          grep -q 'agent_version_not_pc_os_capable' ops/supabase/zhirox-pc-relay-v13.ts
+          grep -q 'version: "5.0.8"' ops/supabase/zhirox-pc-relay-v13.ts
 
       - name: Restore source
         run: |
@@ -58,6 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
           python3 tools/patch_v510.py
           gofmt -w buildsrc/*.go
 
@@ -68,6 +84,7 @@ jobs:
           grep -q 'pc_os_overview' buildsrc/main.go
           grep -q 'pc_os_verify_update' buildsrc/main.go
           grep -q 'go pcOSBackgroundLoop()' buildsrc/main.go
+          grep -q 'go pcOSCloudLoop()' buildsrc/main.go
           grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
           grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
           grep -q 'operation != "start"' buildsrc/owner_actions.go
@@ -75,8 +92,9 @@ jobs:
           grep -q 'arbitrary_shell' buildsrc/pc_os_v510.go
           grep -q 'ed25519.Verify' buildsrc/pc_os_v510.go
           grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
-          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go; then
-            echo 'Zero-UI invariant failed: executable shell launch reference found in PC OS module.' >&2
+          grep -q 'Relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go || grep -q 'relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go
+          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go; then
+            echo 'Zero-UI invariant failed: executable shell launch reference found in PC OS modules.' >&2
             exit 1
           fi
 
@@ -89,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go
 
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
