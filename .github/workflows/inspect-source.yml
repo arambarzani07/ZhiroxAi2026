@@ -19,8 +19,8 @@ jobs:
           mkdir -p buildsrc
           cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
-      - name: Show read-only action dispatch context
+      - name: Show storage scan implementation
         run: |
-          grep -Rni -C 35 'find_system' buildsrc || true
-          echo '--- HEALTH SCORE CONTEXT ---'
-          grep -Rni -C 25 'health_score\|HealthScore\|disk_low' buildsrc || true
+          grep -Rni -A 140 -B 20 'func storageScan' buildsrc || true
+          echo '--- DISPATCH CONTEXT ---'
+          grep -Rni -C 12 'case "storage_scan"' buildsrc || true
