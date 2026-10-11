@@ -1,0 +1,134 @@
+name: Build Zhirox v5.0.7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-v507.yml'
+      - 'tools/patch_downloader_v503.py'
+      - 'tools/patch_v505.py'
+      - 'tools/patch_v506.py'
+      - 'tools/patch_v507.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Restore source
+        run: |
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+
+      - name: Apply v5.0.7 patches
+        run: |
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          gofmt -w buildsrc/*.go
+
+      - name: Verify critical protection policy
+        run: |
+          grep -q '5.0.7' buildsrc/main.go
+          grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
+          grep -q 'func guardCritical' buildsrc/owner_actions.go
+          grep -q 'critical Windows/business/scale protection lock' buildsrc/owner_actions.go
+          grep -Fq 'c:\windows' buildsrc/owner_actions.go
+          grep -Fq 'd:\database' buildsrc/owner_actions.go
+          grep -Fq 'd:\program files\microsoft sql server' buildsrc/owner_actions.go
+          grep -Fq 'c:\program files (x86)\densف ltd\rls1000arv125' buildsrc/owner_actions.go
+          grep -Fq 'supercashier license admin' buildsrc/owner_actions.go
+          grep -Fq 'zhirox smart cashier' buildsrc/owner_actions.go
+          grep -Fq 'supercashier offline' buildsrc/owner_actions.go
+          grep -Fq 'seagull_driverstartup' buildsrc/owner_actions.go
+          grep -Fq 'mssqlserver' buildsrc/owner_actions.go
+          grep -Fq 'sqlserveragent' buildsrc/owner_actions.go
+          grep -Fq 'spooler' buildsrc/owner_actions.go
+          grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
+          grep -q 'operation != "start"' buildsrc/owner_actions.go
+          grep -q 'guardCritical(abs)' buildsrc/main.go
+          grep -q 'guardCritical(abs)' buildsrc/owner_actions.go
+          # Existing Hikvision lock must remain present and unchanged in principle.
+          grep -q 'OVERRIDE_HIKVISION_LOCK' buildsrc/owner_actions.go
+          grep -q 'zhirox-hikvision-gateway' buildsrc/owner_actions.go
+          # Existing health-gated Zhirox cleanup must remain intact.
+          grep -q 'time.Sleep(120 \* time.Second)' buildsrc/main.go
+          grep -q 'zhiroxaisupervisor.exe' buildsrc/main.go
+          grep -q 'zhiroxcoreservice.exe' buildsrc/main.go
+          grep -q 'zhiroxupdater.exe' buildsrc/main.go
+          grep -q 'config.json' buildsrc/main.go
+          grep -q 'update-health.json' buildsrc/main.go
+
+      - name: Static protection assertions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          t = Path('buildsrc/owner_actions.go').read_text().lower()
+          m = Path('buildsrc/main.go').read_text().lower()
+          required_paths = [
+              r'c:\windows',
+              r'c:\program files\windowsapps',
+              r'c:\programdata\microsoft',
+              r'd:\database',
+              r'd:\program files\microsoft sql server',
+              r'c:\program files\microsoft sql server',
+              r'c:\program files (x86)\microsoft sql server',
+              r'c:\program files (x86)\densف ltd\rls1000arv125',
+              r'c:\program files\seagull\printer drivers',
+              r'c:\users\administrator\appdata\local\programs\supercashier license admin',
+              r'c:\users\administrator\appdata\local\programs\zhirox smart cashier',
+              r'c:\users\administrator\appdata\local\programs\supercashier offline',
+          ]
+          for p in required_paths:
+              assert p in t, p
+          for name in ['cashier', 'admin', 'rls1000', 'rtlabel', 'rtplu', 'sqlservr', 'sqlagent', 'mssqlserver', 'sqlserveragent', 'sqlbrowser', 'sqlwriter', 'spooler', 'spoolsv']:
+              assert f'"{name}": true' in t, name
+          assert 'pid-only termination disabled by critical protection' in t
+          assert 'if operation != "start"' in t
+          assert 'if err := guardcritical(abs); err != nil' in m
+          assert 'override_hikvision_lock' in t
+          print('v5.0.7 protection static assertions: PASS')
+          PY
+
+      - name: Compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go test ./...
+
+      - name: Build background supervisor
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go
+
+      - name: Create metadata
+        run: |
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.0.7","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"notes":"Critical Protection Lock: non-overridable mutation protection for Windows, Admin/Cashier business files, business SQL Server, RLS100 scale software and printing dependencies; PID-only process termination disabled; critical services cannot be stopped/restarted or have startup mode changed; start remains allowed for recovery; existing Hikvision and health-gated Zhirox cleanup protections preserved"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+
+      - name: Publish channel
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Zhirox v5.0.7 [skip ci]'
+            git push
+          fi
