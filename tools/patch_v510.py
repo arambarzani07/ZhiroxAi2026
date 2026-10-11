@@ -212,10 +212,12 @@ signed_check = r'''func checkForUpdate() error {
 \tos.Exit(0)
 \treturn nil
 }'''
-# The raw literal above uses escaped tabs/newlines only for readability inside Python;
-# turn literal backslash-t into real tabs before inserting Go source.
 signed_check = signed_check.replace('\\t', '\t')
 text = replace_go_func(text, 'checkForUpdate', signed_check)
+
+# The legacy updater used crypto/sha256 directly in main.go. Verification now lives
+# in pc_os_update_enforce_v510.go; remove only the now-unused import from main.go.
+text = text.replace('\t"crypto/sha256"\n', '', 1)
 
 if '5.0.9' not in text:
     raise SystemExit('expected v5.0.9 base version not found')
