@@ -1,4 +1,4 @@
-name: Generate v5.0.9 updater integration map
+name: Audit legacy updater source archive
 
 on:
   workflow_dispatch:
@@ -9,20 +9,27 @@ on:
       - '.github/workflows/introspect-updater-v510.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  updater-map:
+  updater-audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore hardened source
+      - name: Restore original source archive and record members
         run: |
           set -euo pipefail
-          mkdir -p buildsrc docs
+          mkdir -p buildsrc audit
           cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -tzf /tmp/zhirox-source.tar.gz | sort > audit/archive-members.txt
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+
+      - name: Apply hardened lineage through v5.0.9
+        run: |
+          set -euo pipefail
           python3 tools/patch_downloader_v503.py
           python3 tools/patch_v505.py
           python3 tools/patch_v506.py
@@ -30,80 +37,83 @@ jobs:
           python3 tools/patch_v508.py
           python3 tools/patch_v509.py
 
-      - name: Extract updater-only source map
+      - name: Generate non-secret legacy updater evidence
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          text = Path('buildsrc/main.go').read_text(errors='ignore')
-          wanted = [
-              'checkForUpdate', 'autoUpdateLoop', 'downloadWithAgentAuth',
-              'absoluteUpdateURL', 'updateURLAllowed', 'newerVersion',
-              'versionParts', 'writeHealthMarker', 'cleanupOldVersionArtifacts'
-          ]
+          root = Path('buildsrc')
+          audit = Path('audit')
+          patterns = re.compile(
+              r'(?i)(ZhiroxUpdater|updater|rollback|health[-_ ]?marker|'
+              r'--current|--new|--pid|--sha256|pre-vrollback|failed[-_ ]?update|'
+              r'update-health\.json|\.new\b)'
+          )
+          archive_suffixes = ('.zip', '.tar', '.tgz', '.tar.gz', '.gz', '.7z')
+          updater_named = []
+          embedded_archives = []
+          matches = []
 
-          def function_block(name):
-              m = re.search(r'(?m)^func\s+' + re.escape(name) + r'\s*\([^\n]*', text)
-              if not m:
-                  return None
-              start = m.start()
-              brace = text.find('{', m.start())
-              if brace < 0:
-                  return None
-              depth = 0
-              in_str = False
-              esc = False
-              for i in range(brace, len(text)):
-                  ch = text[i]
-                  if in_str:
-                      if esc:
-                          esc = False
-                      elif ch == '\\':
-                          esc = True
-                      elif ch == '"':
-                          in_str = False
+          for p in sorted(root.rglob('*')):
+              if not p.is_file():
+                  continue
+              rel = p.relative_to(root).as_posix()
+              low = rel.lower()
+              if 'updater' in low or 'update' in low:
+                  updater_named.append(rel)
+              if low.endswith(archive_suffixes):
+                  embedded_archives.append(rel)
+              try:
+                  if p.stat().st_size > 2 * 1024 * 1024:
                       continue
-                  if ch == '"':
-                      in_str = True
-                  elif ch == '{':
-                      depth += 1
-                  elif ch == '}':
-                      depth -= 1
-                      if depth == 0:
-                          return text[start:i+1]
-              return None
+                  raw = p.read_bytes()
+                  if b'\x00' in raw[:8192]:
+                      continue
+                  text = raw.decode('utf-8', errors='ignore')
+              except Exception:
+                  continue
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  if patterns.search(line):
+                      safe = ' '.join(line.strip().split())[:500]
+                      matches.append(f'{rel}:{lineno}: {safe}')
 
-          out = ['# Generated updater integration map', '', '> Static source only; secrets/config values are not included.', '']
-          for name in wanted:
-              block = function_block(name)
-              if block:
-                  out += [f'## `{name}`', '', '```go', block, '```', '']
-
-          # Extract only the UpdateManifest type shape if present, not config values.
-          for type_name in ('UpdateManifest', 'updateManifest'):
-              m = re.search(r'(?m)^type\s+' + type_name + r'\s+struct\s*\{', text)
-              if m:
-                  brace = text.find('{', m.start())
-                  depth = 0
-                  for i in range(brace, len(text)):
-                      if text[i] == '{': depth += 1
-                      elif text[i] == '}':
-                          depth -= 1
-                          if depth == 0:
-                              out += [f'## `{type_name}`', '', '```go', text[m.start():i+1], '```', '']
-                              break
-          Path('docs/generated-v509-updater-map.md').write_text('\n'.join(out))
+          report = [
+              '# Legacy updater archive audit',
+              '',
+              'Scope: repository source archive plus hardened patch lineage through v5.0.9.',
+              'No PC command was issued and no secret/config value was intentionally collected.',
+              '',
+              '## Updater/update-named files',
+          ]
+          report += [f'- {x}' for x in updater_named] or ['- none']
+          report += ['', '## Embedded archives']
+          report += [f'- {x}' for x in embedded_archives] or ['- none']
+          report += ['', '## Updater/rollback textual markers']
+          report += [f'- {x}' for x in matches] or ['- none']
+          report += ['', '## Conclusion marker']
+          has_updater_impl = any('updater' in x.lower() and not x.lower().endswith('main.go') for x in updater_named)
+          has_rollback_marker = any(re.search(r'(?i)(rollback|pre-vrollback|failed[-_ ]?update)', x) for x in matches)
+          report.append(f'- dedicated_updater_source_candidate={str(has_updater_impl).lower()}')
+          report.append(f'- rollback_marker_found={str(has_rollback_marker).lower()}')
+          audit.joinpath('legacy-updater-audit.md').write_text('\n'.join(report) + '\n')
           PY
 
-      - name: Commit updater map
+      - name: List embedded ZIP members when present
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/generated-v509-updater-map.md
-          if ! git diff --cached --quiet; then
-            git commit -m 'Generate v5.0.9 updater map [skip ci]'
-            git push
-          fi
+          : > audit/embedded-zip-members.txt
+          while IFS= read -r -d '' f; do
+            echo "## $f" >> audit/embedded-zip-members.txt
+            unzip -l "$f" >> audit/embedded-zip-members.txt 2>&1 || true
+            echo >> audit/embedded-zip-members.txt
+          done < <(find buildsrc -type f -iname '*.zip' -print0)
+
+      - name: Upload updater audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-updater-audit-${{ github.sha }}
+          path: audit/
+          if-no-files-found: error
+          retention-days: 7
