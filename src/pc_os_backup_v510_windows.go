@@ -76,6 +76,60 @@ func pcOSResolveLocalSQLServer(raw string) (string, error) {
     return pcOSValidateLocalSQLServer(raw, hostname)
 }
 
+func pcOSBackupVaultRoot(create bool) (string, error) {
+    root := filepath.Clean(pcOSBackupDefaultRoot)
+    if create {
+        if err := os.MkdirAll(root, 0700); err != nil {
+            return "", fmt.Errorf("create backup vault root: %w", err)
+        }
+    }
+    info, err := os.Lstat(root)
+    if err != nil {
+        return "", fmt.Errorf("backup vault root unavailable: %w", err)
+    }
+    if !info.IsDir() {
+        return "", errors.New("backup vault root is not a directory")
+    }
+    if info.Mode()&os.ModeSymlink != 0 {
+        return "", errors.New("backup vault root must not be a symlink or junction")
+    }
+    resolved, err := filepath.EvalSymlinks(root)
+    if err != nil {
+        return "", fmt.Errorf("resolve backup vault root: %w", err)
+    }
+    resolved = filepath.Clean(resolved)
+    if !pcOSPathWithin(resolved, root) || !pcOSPathWithin(root, resolved) {
+        return "", errors.New("backup vault root resolves outside its fixed path")
+    }
+    return root, nil
+}
+
+func pcOSValidateExistingVaultFile(path string) (string, error) {
+    root, err := pcOSBackupVaultRoot(false)
+    if err != nil {
+        return "", err
+    }
+    info, err := os.Lstat(path)
+    if err != nil {
+        return "", err
+    }
+    if info.Mode()&os.ModeSymlink != 0 {
+        return "", errors.New("backup file must not be a symlink or junction")
+    }
+    if !info.Mode().IsRegular() {
+        return "", errors.New("backup target is not a regular file")
+    }
+    resolved, err := filepath.EvalSymlinks(path)
+    if err != nil {
+        return "", fmt.Errorf("resolve backup file: %w", err)
+    }
+    resolved = filepath.Clean(resolved)
+    if !pcOSPathWithin(resolved, root) {
+        return "", errors.New("resolved backup file escaped the backup vault")
+    }
+    return resolved, nil
+}
+
 func pcOSRunSQLCmd(ctx context.Context, sqlcmd, server, query string) (string, error) {
     validatedServer, err := pcOSResolveLocalSQLServer(server)
     if err != nil {
@@ -119,12 +173,19 @@ func pcOSSQLBackupReadiness(args map[string]interface{}) (interface{}, error) {
         "database_native_required":   true,
         "raw_mdf_ldf_copy_supported": false,
         "default_backup_root":        pcOSBackupDefaultRoot,
-        "write_scope":                 "D:\\ZhiroxBackups only",
+        "write_scope":                 "D:\\ZhiroxBackups direct files only",
         "sql_target_scope":            "local host/instance only",
         "protected_database_root":    filepath.Clean(`D:\DataBase`),
         "execute_requires_approval":  true,
         "verify_only_supported":      true,
         "hash_catalog_supported":     true,
+        "junction_escape_blocked":    true,
+    }
+    if _, vaultErr := pcOSBackupVaultRoot(false); vaultErr != nil {
+        result["vault_root_ready"] = false
+        result["vault_root_status"] = vaultErr.Error()
+    } else {
+        result["vault_root_ready"] = true
     }
     if sqlErr != nil {
         result["sqlcmd_ready"] = false
@@ -177,16 +238,17 @@ func pcOSSQLBackupReadiness(args map[string]interface{}) (interface{}, error) {
 }
 
 func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
-    abs, err := pcOSValidateBackupPath(sarg(args, "path"))
+    requested, err := pcOSValidateBackupPath(sarg(args, "path"))
+    if err != nil {
+        return nil, err
+    }
+    abs, err := pcOSValidateExistingVaultFile(requested)
     if err != nil {
         return nil, err
     }
     info, err := os.Stat(abs)
     if err != nil {
         return nil, err
-    }
-    if !info.Mode().IsRegular() {
-        return nil, errors.New("backup target is not a regular file")
     }
 
     sqlcmd, err := pcOSFindSQLCmd()
@@ -231,6 +293,7 @@ func pcOSSQLBackupVerify(args map[string]interface{}) (interface{}, error) {
         "read_only":     true,
         "zero_ui":       true,
         "vault_bound":   true,
+        "symlink_safe":  true,
     }, nil
 }
 
@@ -256,10 +319,14 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
         return nil, err
     }
 
-    if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
-        return nil, fmt.Errorf("create backup directory: %w", err)
+    root, err := pcOSBackupVaultRoot(true)
+    if err != nil {
+        return nil, err
     }
-    if _, err := os.Stat(destination); err == nil {
+    if !strings.EqualFold(filepath.Clean(filepath.Dir(destination)), filepath.Clean(root)) {
+        return nil, errors.New("backup destination parent is outside the fixed backup vault root")
+    }
+    if _, err := os.Lstat(destination); err == nil {
         return nil, errors.New("refusing to overwrite an existing backup file")
     } else if !os.IsNotExist(err) {
         return nil, err
@@ -275,6 +342,10 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
     ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMinutes)*time.Minute)
     defer cancel()
 
+    // Re-check the fixed vault root immediately before SQL Server receives the path.
+    if _, err := pcOSBackupVaultRoot(false); err != nil {
+        return nil, err
+    }
     query := "BACKUP DATABASE " + pcOSQuoteSQLIdentifier(database) +
         " TO DISK = " + pcOSQuoteSQLString(destination) +
         " WITH COPY_ONLY, CHECKSUM, COMPRESSION, INIT, STATS = 10;"
@@ -310,6 +381,7 @@ func pcOSSQLBackupExecute(args map[string]interface{}) (interface{}, error) {
         "approval_bound":    true,
         "vault_bound":       true,
         "local_sql_only":    true,
+        "symlink_safe":      true,
         "timeout_minutes":   timeoutMinutes,
     }, nil
 }
