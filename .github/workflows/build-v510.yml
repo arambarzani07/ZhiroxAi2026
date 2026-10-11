@@ -12,7 +12,7 @@ on:
       - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_windows_v510.go'
       - 'src/pc_os_v510_test.go'
-      - 'ops/supabase/zhirox-pc-relay-v13.ts'
+      - 'ops/supabase/zhirox-pc-relay-v14.ts'
       - 'ops/supabase/pc_os_v510.sql'
       - 'tools/patch_v510.py'
       - 'tools/sign_metadata_v510.go'
@@ -48,10 +48,13 @@ jobs:
       - name: Relay type and compatibility checks
         run: |
           set -euo pipefail
-          deno check ops/supabase/zhirox-pc-relay-v13.ts
-          grep -q 'pc_os_min_agent: "5.1.0"' ops/supabase/zhirox-pc-relay-v13.ts
-          grep -q 'agent_version_not_pc_os_capable' ops/supabase/zhirox-pc-relay-v13.ts
-          grep -q 'version: "5.0.8"' ops/supabase/zhirox-pc-relay-v13.ts
+          deno check ops/supabase/zhirox-pc-relay-v14.ts
+          grep -q 'pc_os_min_agent:"5.1.0"' ops/supabase/zhirox-pc-relay-v14.ts
+          grep -q 'agent_version_not_pc_os_capable' ops/supabase/zhirox-pc-relay-v14.ts
+          grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v14.ts
+          grep -q 'sanitizeForPostgres' ops/supabase/zhirox-pc-relay-v14.ts
+          grep -q 'RESULT_MAX_JSON_BYTES=1500000' ops/supabase/zhirox-pc-relay-v14.ts
+          grep -q 'result_sanitizer:true' ops/supabase/zhirox-pc-relay-v14.ts
 
       - name: Restore source
         run: |
