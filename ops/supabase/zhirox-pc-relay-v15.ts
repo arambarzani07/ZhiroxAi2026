@@ -106,8 +106,8 @@ const READ_ACTIONS=new Set([
   "remote_actions_info","binary_phrase_probe"
 ]);
 const PC_OS_READ_ACTIONS=new Set([
-  "pc_os_overview","pc_os_modules","pc_os_guardian","pc_os_backup","pc_os_continuity",
-  "pc_os_update_chain","pc_os_verify_update","pc_os_disk","pc_os_network","pc_os_security",
+  "pc_os_overview","pc_os_modules","pc_os_guardian","pc_os_backup","pc_os_backup_readiness",
+  "pc_os_backup_verify","pc_os_continuity","pc_os_update_chain","pc_os_verify_update","pc_os_disk","pc_os_network","pc_os_security",
   "pc_os_files","pc_os_inventory","pc_os_ai","pc_os_zero_ui","pc_os_disaster_recovery"
 ]);
 const MUTATION_ACTIONS=new Set([
@@ -120,7 +120,7 @@ const MUTATION_ACTIONS=new Set([
   "service_control","restart_service","service_start_type_set",
   "archive_create","archive_extract","directory_copy","file_delete",
   "timezone_set","computer_rename","defender_scan","defender_update","power_plan_set",
-  "reboot","owner_batch"
+  "reboot","owner_batch","pc_os_backup_execute"
 ]);
 
 const TRUSTED_UPDATE_BINARY="https://raw.githubusercontent.com/arambarzani07/ZhiroxAi2026/main/channel/ZhiroxAISupervisor.exe";
