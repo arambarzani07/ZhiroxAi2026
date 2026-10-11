@@ -11,6 +11,7 @@ on:
       - 'src/pc_os_v510.go'
       - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_windows_v510.go'
+      - 'src/pc_os_backup_v510_windows.go'
       - 'src/pc_os_update_enforce_v510.go'
       - 'src/pc_os_self_updater_v510_windows.go'
       - 'src/update_trust_v510.go'
@@ -109,6 +110,7 @@ jobs:
           cp src/pc_os_v510.go buildsrc/pc_os_v510.go
           cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
           cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
           cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
           cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
           cp src/update_trust_v510.go buildsrc/update_trust_v510.go
@@ -141,6 +143,12 @@ jobs:
           grep -q 'pcOSMaybeRunUpdaterMode' buildsrc/main.go
           grep -q 'func pcOSWindowsInventory' buildsrc/pc_os_windows_v510.go
           grep -q 'func pcOSWindowsGuardian' buildsrc/pc_os_windows_v510.go
+          grep -q 'func pcOSSQLBackupReadiness' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'func pcOSSQLBackupVerify' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'func pcOSSQLBackupExecute' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'BACKUP DATABASE' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'RESTORE VERIFYONLY' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'COPY_ONLY, CHECKSUM, COMPRESSION' buildsrc/pc_os_backup_v510_windows.go
           grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
           grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
           grep -q 'operation != "start"' buildsrc/owner_actions.go
@@ -161,12 +169,12 @@ jobs:
             echo 'Trust invariant failed: runtime verifier still reads a mutable public-key file.' >&2
             exit 1
           fi
-          if grep -Eqi 'powershell\.exe|cmd\.exe' buildsrc/pc_os_self_updater_v510_windows.go; then
-            echo 'Zero-UI updater invariant failed: shell executable reference found.' >&2
+          if grep -Eqi 'powershell\.exe|cmd\.exe' buildsrc/pc_os_self_updater_v510_windows.go buildsrc/pc_os_backup_v510_windows.go; then
+            echo 'Zero-UI invariant failed: shell executable reference found in updater/backup module.' >&2
             exit 1
           fi
           if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go buildsrc/pc_os_update_enforce_v510.go; then
-            echo 'Zero-UI invariant failed: executable shell launch reference found in PC OS modules.' >&2
+            echo 'Zero-UI invariant failed: executable shell launch reference found in read-only PC OS modules.' >&2
             exit 1
           fi
           if grep -Eqi 'serviceControl\(|processTerminate\(|fileDeleteAction\(|registry(Set|Delete)Action\(|firewallRule(Add|Delete|Set)Action\(|driverInstallInfAction\(|msi(Install|Uninstall)Action\(' buildsrc/pc_os_windows_v510.go; then
@@ -183,7 +191,7 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
 
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
