@@ -2,7 +2,7 @@
 
 ## Objective
 
-Turn the existing Supervisor into an enterprise-safe PC management layer while preserving the Critical Protection Lock, Zero-UI operation, structured actions, remote reconnect behavior, and rollback discipline.
+Turn the existing Supervisor into an enterprise-safe PC management layer while preserving the Critical Protection Lock, Zero-UI operation, structured actions, remote reconnect behavior, explicit approval for mutations, signed-update trust, and rollback discipline.
 
 ## Modules
 
@@ -26,7 +26,8 @@ Turn the existing Supervisor into an enterprise-safe PC management layer while p
 - Critical SQL/business services cannot be stopped/restarted through generic actions; start-only recovery behavior from v5.0.7 is preserved.
 - Hikvision/DVR is not modified by PC OS modules.
 - No arbitrary shell command is introduced.
-- New remote `pc_os_*` commands are read-only.
+- New remote `pc_os_*` diagnostic commands remain read-only.
+- Generic structured mutations are default-deny and require a one-time exact-args approval record.
 - PC OS diagnostic modules do not call `cmd.exe`, PowerShell, or a visible shell.
 - The rollback updater launches only the fixed Supervisor executable and is itself GUI/hidden-process based.
 - The binary remains built with `-H=windowsgui`.
@@ -55,6 +56,23 @@ The main release workflow uses the GitHub Actions secret `ZHIROX_UPDATE_ED25519_
 
 `channel/update-public-key.hex` is retained only as a release/audit marker. Runtime verification does **not** trust or read that mutable file. The signing step refuses the release if the signing seed does not match the public key that was prepared before compilation.
 
+### One-time v5.0.8 -> v5.1.0 bootstrap boundary
+
+The currently deployed v5.0.8 updater predates Ed25519 verification. Therefore the first transition into v5.1.0 cannot truthfully claim agent-side Ed25519 verification before the new binary is running.
+
+That single bootstrap transition is allowed only under all of these gates:
+
+- manual production manifest promotion;
+- authenticated existing relay path;
+- existing trusted Supabase relay host restriction;
+- exact release SHA-256 and exact artifact size recorded before promotion;
+- feature/unsigned artifacts remain non-publishable;
+- signed main artifact and rollback behavior verified before promotion;
+- production remains pinned to known-good v5.0.8 until explicit cutover approval;
+- after v5.1.0 is running, all later automatic updates are Ed25519 fail-closed.
+
+This bootstrap boundary is a migration constraint, not a permanent weakening of the v5.1+ trust model.
+
 ## Atomic updater and rollback
 
 After v5.1.0 has proved cloud health with three consecutive heartbeats, it refreshes `ZhiroxUpdater.exe` from the verified running Supervisor binary. This creates a known-source companion updater for later v5.1+ updates.
@@ -76,6 +94,8 @@ The existing three-heartbeat cleanup gate remains the later stability gate for e
 
 ## New structured commands
 
+Read-only PC OS commands:
+
 - `pc_os_overview`
 - `pc_os_modules`
 - `pc_os_guardian`
@@ -93,6 +113,8 @@ The existing three-heartbeat cleanup gate remains the later stability gate for e
 - `pc_os_disaster_recovery`
 
 `pc_os_verify_update` accepts `manifest_path` and `artifact_path`. `pc_os_files` accepts `path`. Both are restricted to managed roots.
+
+The relay also exposes existing bounded structured read actions such as metrics, processes, services, disks, drivers, startup items, Windows Update, security status, app status and file hash. Text reading of protected binaries/database files is explicitly refused where it is not an appropriate inspection method.
 
 ## Windows live-diagnostic integration
 
@@ -126,9 +148,9 @@ The additive PC OS schema contains:
 
 RLS is enabled on all five tables. `anon` and `authenticated` have no DML privileges. `service_role` receives explicit `SELECT/INSERT/UPDATE/DELETE` grants for relay operation.
 
-Production currently runs the relay-v15 logic as Supabase Edge Function deployment version 16. It keeps the production Supervisor update channel fixed at the known-good `5.0.8` while adding PC OS endpoints gated to Agent version `>=5.1.0`. It also sanitizes PostgreSQL-bound payloads and caps oversized command results.
+Production currently runs relay-v15 logic as Supabase Edge Function deployment version 16. It keeps the production Supervisor update channel fixed at the known-good `5.0.8` while adding PC OS endpoints gated to Agent version `>=5.1.0`. It also sanitizes PostgreSQL-bound payloads and caps oversized command results.
 
-Post-deployment verification confirmed the existing Agent remained on `5.0.8`, health stayed at 100, alerts remained empty, and heartbeats continued normally. Deploying the relay therefore did not promote or install v5.1.0 on the PC.
+Live verification after deployment confirmed the existing Agent remained on `5.0.8`, health remained `100`, alerts remained empty, and heartbeats continued normally. Deploying the relay therefore did not promote or install v5.1.0 on the PC.
 
 ## Structured mutation approval gate
 
@@ -148,11 +170,28 @@ The database RPC locks the approval row with `FOR UPDATE`, rejects missing/expir
 
 The approval TTL is enforced by the validated database constraint `pc_relay_command_approvals_ttl_check`, which requires `expires_at <= approved_at + 15 minutes`.
 
-Production verification after hardening showed zero active approvals and zero queued mutation commands.
+Current production verification shows zero active approvals and zero queued mutation commands.
 
-## Backup policy
+## Native SQL backup policy
 
-Agent state uses versioned/checksummed snapshots and the backup catalog. The business database requires a database-native backup provider. A raw copy of a live SQL database is intentionally not implemented as a backup mechanism.
+A raw copy of live `.mdf/.ndf/.ldf` files is never used as the business backup mechanism.
+
+The Windows Smart Backup Vault provides three distinct SQL Server operations:
+
+- **Readiness** — read-only discovery of `sqlcmd.exe`, connectivity and user databases.
+- **Verify** — `RESTORE VERIFYONLY FROM DISK ... WITH CHECKSUM` plus SHA-256 of an existing `.bak` outside `D:\DataBase`.
+- **Execute** — approval-bound `BACKUP DATABASE ... WITH COPY_ONLY, CHECKSUM, COMPRESSION` followed immediately by verification and SHA-256.
+
+Execution rules:
+
+- local confirmation must exactly equal `BACKUP <database>`;
+- remote execution also requires the one-time exact-args relay approval;
+- backup destination cannot be inside `D:\DataBase`;
+- destination must be an absolute `.bak` path;
+- existing backup files are never overwritten;
+- the default local backup root is `D:\ZhiroxBackups`;
+- the SQL backup command is launched directly with Zero-UI/background process flags, not through a shell;
+- restore is not implemented as an automatic background action.
 
 Retention baseline:
 
@@ -161,7 +200,7 @@ Retention baseline:
 - 3 monthly
 - at least one immutable/offline copy
 
-Destructive restore remains disabled. Restore is a controlled disaster-recovery operation, never a background action.
+A local hash-verified `.bak` is **not** equivalent to WORM/immutable storage. True immutable backup requires a separate immutable/offline target.
 
 ## Disk policy
 
@@ -191,5 +230,6 @@ Security Sentinel combines Windows Defender/Firewall/startup/driver/event state 
 7. Provision `ZHIROX_UPDATE_ED25519_SEED_B64` only in GitHub Actions secret storage; never commit it or send it through the relay/database.
 8. Merge to `main` only after all verification gates pass and the release signing secret is securely available.
 9. Main build derives and compiles the pinned public trust anchor, then signs the exact built artifact.
-10. Do not promote the production update manifest until the signed artifact and rollback path are verified.
-11. Initial v5.0.8 -> v5.1.0 cutover uses the existing staged updater; after v5.1 proves three heartbeats, the new self-updater replaces the legacy companion for subsequent releases.
+10. Verify exact release SHA-256, size, signature, updater behavior, health marker and rollback artifact before production manifest promotion.
+11. Treat v5.0.8 -> v5.1.0 as the single controlled bootstrap boundary described above.
+12. After v5.1.0 proves stable, all later automatic updates remain Ed25519 fail-closed and use the embedded companion rollback updater.
