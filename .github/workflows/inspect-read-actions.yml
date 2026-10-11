@@ -1,0 +1,28 @@
+name: Inspect read actions
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/inspect-read-actions.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore source
+        run: |
+          mkdir -p buildsrc
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+      - name: Inspect relevant read actions
+        run: |
+          grep -Rni -E 'read_text|search_files|func .*read|func .*search|max_command_output|allowedPath' buildsrc/*.go | head -200
+          echo '--- read_text context ---'
+          grep -Rni -B25 -A90 'read_text' buildsrc/*.go | head -350
+          echo '--- search_files context ---'
+          grep -Rni -B25 -A120 'search_files' buildsrc/*.go | head -400
