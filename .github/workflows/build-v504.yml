@@ -1,0 +1,71 @@
+name: Build Zhirox v5.0.4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-v504.yml'
+      - 'tools/patch_downloader_v503.py'
+      - 'tools/patch_v504.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Restore source
+        run: |
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+      - name: Apply v5.0.4 patches
+        run: |
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v504.py
+          gofmt -w buildsrc/*.go
+      - name: Verify permanent health-gated cleanup policy
+        run: |
+          grep -q '5.0.4' buildsrc/main.go
+          grep -q 'old-version cleanup removed after health verification' buildsrc/main.go
+          grep -q 'cfg.AutoCleanupOldVersions = true' buildsrc/main.go
+          grep -q 'zhiroxai-universalownercontrol-v' buildsrc/main.go
+          grep -q 'zhiroxai-zeroui-absolute-v' buildsrc/main.go
+          grep -q 'zhiroxai-final-background-service-' buildsrc/main.go
+          grep -q 'ZhiroxCoreService.exe' buildsrc/main.go
+          grep -q 'OneDrive\\Desktop\\zhiroxai' buildsrc/main.go
+      - name: Compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go test ./...
+      - name: Build background supervisor
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go
+      - name: Create metadata
+        run: |
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.0.4","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"notes":"Permanent health-gated cleanup of explicitly allowlisted legacy Zhirox executables and updater artifacts; active Supervisor, Updater, Core Service, config, queue and support remain protected; Zero-UI preserved"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+      - name: Publish channel
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Zhirox v5.0.4 [skip ci]'
+            git push
+          fi
