@@ -28,6 +28,24 @@ insert = r'''
             }
         }
     }
+
+    // Remove only the two audited legacy backup directories, and only when empty.
+    // os.Remove is intentionally non-recursive: unknown contents are never deleted.
+    auditedEmptyDirs := []string{
+        filepath.Join(activeRoot, "backup", "pre-v4.5-20261010-172144"),
+        filepath.Join(activeRoot, "backup"),
+    }
+    for _, candidate := range auditedEmptyDirs {
+        candidate = filepath.Clean(candidate)
+        if !strings.HasPrefix(strings.ToLower(candidate), strings.ToLower(activeRoot)+string(os.PathSeparator)) {
+            continue
+        }
+        if err := os.Remove(candidate); err == nil {
+            deleted = append(deleted, candidate)
+        } else if !os.IsNotExist(err) {
+            log.Printf("clean-runtime kept non-empty/locked directory %s: %v", candidate, err)
+        }
+    }
 '''
 if needle not in text:
     raise SystemExit('cleanup insertion point not found')
