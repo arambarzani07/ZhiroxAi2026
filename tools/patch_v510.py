@@ -4,8 +4,9 @@ main = Path('buildsrc/main.go')
 text = main.read_text()
 
 # Wire the enterprise PC OS surface into the existing structured command switch.
-# All remote pc_os_* commands in v5.1.0 remain read-only. Local module writes are
-# limited to atomic PC OS status files under the active ZhiroxAI root.
+# PC OS diagnostics remain read-only. The SQL-native backup execute action is the
+# only PC OS mutation here and is separately approval-gated by the relay and by
+# an exact in-agent confirmation phrase.
 old = '''\tcase "binary_phrase_probe":
 \t\tout, err = binaryPhraseProbe(sarg(c.Args, "path"), sarg(c.Args, "needle"))
 \tcase "support_bundle":'''
@@ -19,6 +20,12 @@ new = '''\tcase "binary_phrase_probe":
 \t\tout, err = pcOSWindowsGuardian()
 \tcase "pc_os_backup":
 \t\tout, err = pcOSBackupVault()
+\tcase "pc_os_backup_readiness":
+\t\tout, err = pcOSSQLBackupReadiness(c.Args)
+\tcase "pc_os_backup_verify":
+\t\tout, err = pcOSSQLBackupVerify(c.Args)
+\tcase "pc_os_backup_execute":
+\t\tout, err = pcOSSQLBackupExecute(c.Args)
 \tcase "pc_os_continuity":
 \t\tout, err = pcOSWindowsContinuity()
 \tcase "pc_os_update_chain":
