@@ -1,1 +1,1 @@
-{"version":"5.0.8","file":"ZhiroxAISupervisor.exe","sha256":"c8af730b1ec4f12763378ff3abb67eadfacfa63adfee7d3503c13cafa6450547","size":6328320,"notes":"One-time guarded SSIS Scale Out log retention cleanup; v5.0.7 critical protections preserved"}
+{"version":"5.0.9","file":"ZhiroxAISupervisor.exe","sha256":"56531789de6c2e522216b5e3035b36fd1a9a587b4d6cbe8c8fbf4fe8a7514725","size":6337536,"notes":"Read-only guarded Cashier.exe binary phrase probe; v5.0.7 critical protections and v5.0.8 SSIS cleanup protections preserved"}
