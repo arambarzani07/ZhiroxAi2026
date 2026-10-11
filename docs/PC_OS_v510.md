@@ -126,7 +126,29 @@ The additive PC OS schema contains:
 
 RLS is enabled on all five tables. `anon` and `authenticated` have no DML privileges. `service_role` receives explicit `SELECT/INSERT/UPDATE/DELETE` grants for relay operation.
 
-Production relay v14 keeps the existing v5.0.8 update channel unchanged while adding PC OS endpoints gated to agent version `>=5.1.0`. It also sanitizes PostgreSQL-bound payloads and caps oversized command results.
+Production currently runs the relay-v15 logic as Supabase Edge Function deployment version 16. It keeps the production Supervisor update channel fixed at the known-good `5.0.8` while adding PC OS endpoints gated to Agent version `>=5.1.0`. It also sanitizes PostgreSQL-bound payloads and caps oversized command results.
+
+Post-deployment verification confirmed the existing Agent remained on `5.0.8`, health stayed at 100, alerts remained empty, and heartbeats continued normally. Deploying the relay therefore did not promote or install v5.1.0 on the PC.
+
+## Structured mutation approval gate
+
+Read-only relay actions remain directly queueable through the authenticated connector path. Structured mutation actions are separately gated and cannot be queued from the relay without an approval record.
+
+A mutation approval is bound to:
+
+- one exact Agent ID;
+- one exact action;
+- one exact JSON argument object;
+- one use only;
+- a maximum validity window of 15 minutes.
+
+The database RPC locks the approval row with `FOR UPDATE`, rejects missing/expired/used/mismatched approvals, atomically queues the exact command, and immediately marks the approval as used with the resulting command ID.
+
+`public.enqueue_approved_pc_relay_command(uuid,text,text,jsonb)` runs as `SECURITY INVOKER`, not `SECURITY DEFINER`. The relay service role already has the exact table privileges needed, so no privilege elevation is required. `anon` and `authenticated` cannot execute the RPC and cannot perform DML on the approval table.
+
+The approval TTL is enforced by the validated database constraint `pc_relay_command_approvals_ttl_check`, which requires `expires_at <= approved_at + 15 minutes`.
+
+Production verification after hardening showed zero active approvals and zero queued mutation commands.
 
 ## Backup policy
 
@@ -161,12 +183,13 @@ Security Sentinel combines Windows Defender/Firewall/startup/driver/event state 
 ## Rollout gates
 
 1. Build on `feature/pc-os-v510`.
-2. Pass unit tests, relay type checks, security invariants, `go vet`, and Windows GUI compile.
+2. Pass unit tests, relay type checks, mutation-approval assertions, security invariants, `go vet`, and Windows GUI compile.
 3. Feature artifact must remain unsigned/non-publishable and fail-closed for automatic update.
 4. Keep Supabase PC OS schema service-role-only.
-5. Keep production relay backward compatible with v5.0.8.
-6. Provision `ZHIROX_UPDATE_ED25519_SEED_B64` only in GitHub Actions secret storage; never commit it.
-7. Merge to `main` only after all verification gates pass.
-8. Main build derives and compiles the pinned public trust anchor, then signs the exact built artifact.
-9. Do not promote the production update manifest until the signed artifact and rollback path are verified.
-10. Initial v5.0.8 -> v5.1.0 cutover uses the existing staged updater; after v5.1 proves three heartbeats, the new self-updater replaces the legacy companion for subsequent releases.
+5. Keep production relay backward compatible with v5.0.8 and the production update channel pinned to v5.0.8 until signed promotion.
+6. Keep structured mutation execution behind one-time, exact-agent/action/args approvals with a maximum 15-minute TTL.
+7. Provision `ZHIROX_UPDATE_ED25519_SEED_B64` only in GitHub Actions secret storage; never commit it or send it through the relay/database.
+8. Merge to `main` only after all verification gates pass and the release signing secret is securely available.
+9. Main build derives and compiles the pinned public trust anchor, then signs the exact built artifact.
+10. Do not promote the production update manifest until the signed artifact and rollback path are verified.
+11. Initial v5.0.8 -> v5.1.0 cutover uses the existing staged updater; after v5.1 proves three heartbeats, the new self-updater replaces the legacy companion for subsequent releases.
