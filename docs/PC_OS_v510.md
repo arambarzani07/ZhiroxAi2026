@@ -100,6 +100,8 @@ Read-only PC OS commands:
 - `pc_os_modules`
 - `pc_os_guardian`
 - `pc_os_backup`
+- `pc_os_backup_readiness`
+- `pc_os_backup_verify`
 - `pc_os_continuity`
 - `pc_os_update_chain`
 - `pc_os_verify_update`
@@ -112,7 +114,11 @@ Read-only PC OS commands:
 - `pc_os_zero_ui`
 - `pc_os_disaster_recovery`
 
-`pc_os_verify_update` accepts `manifest_path` and `artifact_path`. `pc_os_files` accepts `path`. Both are restricted to managed roots.
+Approval-bound PC OS mutation:
+
+- `pc_os_backup_execute`
+
+`pc_os_verify_update` accepts `manifest_path` and `artifact_path`. `pc_os_files` accepts `path`. Both are restricted to managed roots. `pc_os_backup_execute` is not present in the read-only relay set and cannot be queued without a valid one-time exact-args approval.
 
 The relay also exposes existing bounded structured read actions such as metrics, processes, services, disks, drivers, startup items, Windows Update, security status, app status and file hash. Text reading of protected binaries/database files is explicitly refused where it is not an appropriate inspection method.
 
@@ -148,9 +154,9 @@ The additive PC OS schema contains:
 
 RLS is enabled on all five tables. `anon` and `authenticated` have no DML privileges. `service_role` receives explicit `SELECT/INSERT/UPDATE/DELETE` grants for relay operation.
 
-Production currently runs relay-v15 logic as Supabase Edge Function deployment version 16. It keeps the production Supervisor update channel fixed at the known-good `5.0.8` while adding PC OS endpoints gated to Agent version `>=5.1.0`. It also sanitizes PostgreSQL-bound payloads and caps oversized command results.
+Production currently runs relay-v15 logic as Supabase Edge Function deployment version 17. It keeps the production Supervisor update channel fixed at the known-good `5.0.8` while adding PC OS endpoints gated to Agent version `>=5.1.0`. It sanitizes PostgreSQL-bound payloads, caps oversized command results, routes `pc_os_backup_readiness` and `pc_os_backup_verify` as read-only operations, and routes `pc_os_backup_execute` only through the one-time mutation-approval path.
 
-Live verification after deployment confirmed the existing Agent remained on `5.0.8`, health remained `100`, alerts remained empty, and heartbeats continued normally. Deploying the relay therefore did not promote or install v5.1.0 on the PC.
+Live verification after deployment confirmed the existing Agent remained on `5.0.8`, health remained `100`, alerts remained empty, heartbeats continued normally, active approvals remained zero, and queued mutations remained zero. Deploying the relay therefore did not promote or install v5.1.0 on the PC and did not execute a SQL backup.
 
 ## Structured mutation approval gate
 
@@ -187,9 +193,11 @@ Execution rules:
 - local confirmation must exactly equal `BACKUP <database>`;
 - remote execution also requires the one-time exact-args relay approval;
 - backup destination cannot be inside `D:\DataBase`;
-- destination must be an absolute `.bak` path;
+- destination must be an absolute `.bak` path directly inside `D:\ZhiroxBackups`;
 - existing backup files are never overwritten;
 - the default local backup root is `D:\ZhiroxBackups`;
+- `sqlcmd.exe` must be discovered under trusted Microsoft SQL Server installation roots;
+- the SQL target is restricted to the local host or a local named instance;
 - the SQL backup command is launched directly with Zero-UI/background process flags, not through a shell;
 - restore is not implemented as an automatic background action.
 
@@ -222,14 +230,15 @@ Security Sentinel combines Windows Defender/Firewall/startup/driver/event state 
 ## Rollout gates
 
 1. Build on `feature/pc-os-v510`.
-2. Pass unit tests, relay type checks, mutation-approval assertions, security invariants, `go vet`, and Windows GUI compile.
+2. Pass unit tests, relay type checks, mutation-approval assertions, backup-route classification checks, security invariants, `go vet`, and Windows GUI compile.
 3. Feature artifact must remain unsigned/non-publishable and fail-closed for automatic update.
 4. Keep Supabase PC OS schema service-role-only.
 5. Keep production relay backward compatible with v5.0.8 and the production update channel pinned to v5.0.8 until signed promotion.
 6. Keep structured mutation execution behind one-time, exact-agent/action/args approvals with a maximum 15-minute TTL.
-7. Provision `ZHIROX_UPDATE_ED25519_SEED_B64` only in GitHub Actions secret storage; never commit it or send it through the relay/database.
-8. Merge to `main` only after all verification gates pass and the release signing secret is securely available.
-9. Main build derives and compiles the pinned public trust anchor, then signs the exact built artifact.
-10. Verify exact release SHA-256, size, signature, updater behavior, health marker and rollback artifact before production manifest promotion.
-11. Treat v5.0.8 -> v5.1.0 as the single controlled bootstrap boundary described above.
-12. After v5.1.0 proves stable, all later automatic updates remain Ed25519 fail-closed and use the embedded companion rollback updater.
+7. Keep `pc_os_backup_execute` outside all read-only relay action sets and require the exact local confirmation phrase in-agent.
+8. Provision `ZHIROX_UPDATE_ED25519_SEED_B64` only in GitHub Actions secret storage; never commit it or send it through the relay/database.
+9. Merge to `main` only after all verification gates pass and the release signing secret is securely available.
+10. Main build derives and compiles the pinned public trust anchor, then signs the exact built artifact.
+11. Verify exact release SHA-256, size, signature, updater behavior, health marker and rollback artifact before production manifest promotion.
+12. Treat v5.0.8 -> v5.1.0 as the single controlled bootstrap boundary described above.
+13. After v5.1.0 proves stable, all later automatic updates remain Ed25519 fail-closed and use the embedded companion rollback updater.
