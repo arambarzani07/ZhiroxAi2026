@@ -36,11 +36,13 @@ on:
       - 'tools/patch_v509.py'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -266,18 +268,47 @@ jobs:
             channel/update-public-key.hex
           if-no-files-found: error
 
-      - name: Stage signed main release candidate without production promotion
-        if: github.ref == 'refs/heads/main'
+  stage-candidate:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download signed candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.0-${{ github.sha }}
+          path: candidate-input
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Re-verify and stage signed candidate without production promotion
         run: |
           set -euo pipefail
+          VERIFY_ROOT=$(mktemp -d)
+          trap 'rm -rf "$VERIFY_ROOT"' EXIT
+          mkdir -p "$VERIFY_ROOT/channel"
+          cp candidate-input/ZhiroxAISupervisor.exe "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe"
+          cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe.sha256"
+          cp candidate-input/metadata.json "$VERIFY_ROOT/channel/metadata.json"
+          cp candidate-input/update-public-key.hex "$VERIFY_ROOT/channel/update-public-key.hex"
+          (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go")
+
           CANDIDATE_DIR='release-candidates/v5.1.0'
           rm -rf "$CANDIDATE_DIR"
           mkdir -p "$CANDIDATE_DIR"
-          cp channel/ZhiroxAISupervisor.exe "$CANDIDATE_DIR/ZhiroxAISupervisor.exe"
-          cp channel/ZhiroxAISupervisor.exe.sha256 "$CANDIDATE_DIR/ZhiroxAISupervisor.exe.sha256"
-          cp channel/metadata.json "$CANDIDATE_DIR/metadata.json"
-          cp channel/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
+          cp candidate-input/ZhiroxAISupervisor.exe "$CANDIDATE_DIR/ZhiroxAISupervisor.exe"
+          cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$CANDIDATE_DIR/ZhiroxAISupervisor.exe.sha256"
+          cp candidate-input/metadata.json "$CANDIDATE_DIR/metadata.json"
+          cp candidate-input/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
           printf '{"version":"5.1.0","source_commit":"%s","workflow_run_id":"%s","signed":true,"production_promoted":false,"promotion_requires_explicit_cutover":true}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add "$CANDIDATE_DIR"
