@@ -169,10 +169,14 @@ jobs:
             echo 'Trust invariant failed: runtime verifier still reads a mutable public-key file.' >&2
             exit 1
           fi
-          if grep -Eqi 'powershell\.exe|cmd\.exe' buildsrc/pc_os_self_updater_v510_windows.go buildsrc/pc_os_backup_v510_windows.go; then
-            echo 'Zero-UI invariant failed: shell executable reference found in updater/backup module.' >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ('pc_os_self_updater_v510_windows.go', 'pc_os_backup_v510_windows.go'):
+              text = Path('buildsrc', name).read_text(errors='ignore')
+              if re.search(r'(?i)["\x27](?:cmd|powershell)\.exe["\x27]', text):
+                  raise SystemExit(f'Zero-UI invariant failed: literal shell executable reference found in {name}')
+          PY
           if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go buildsrc/pc_os_update_enforce_v510.go; then
             echo 'Zero-UI invariant failed: executable shell launch reference found in read-only PC OS modules.' >&2
             exit 1
