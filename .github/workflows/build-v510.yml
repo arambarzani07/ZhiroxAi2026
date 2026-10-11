@@ -12,11 +12,14 @@ on:
       - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_windows_v510.go'
       - 'src/pc_os_update_enforce_v510.go'
+      - 'src/update_trust_v510.go'
       - 'src/pc_os_v510_test.go'
       - 'src/pc_os_update_enforce_v510_test.go'
       - 'ops/supabase/zhirox-pc-relay-v14.ts'
       - 'ops/supabase/pc_os_v510.sql'
       - 'tools/patch_v510.py'
+      - 'tools/patch_trust_v510.py'
+      - 'tools/prepare_trust_v510.go'
       - 'tools/sign_metadata_v510.go'
       - 'tools/patch_downloader_v503.py'
       - 'tools/patch_v505.py'
@@ -45,7 +48,7 @@ jobs:
       - name: PC OS unit tests
         run: |
           set -euo pipefail
-          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go
+          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go
 
       - name: Relay type and compatibility checks
         run: |
@@ -82,8 +85,22 @@ jobs:
           cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
           cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
           cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
           python3 tools/patch_v510.py
+          python3 tools/patch_trust_v510.py
           gofmt -w buildsrc/*.go
+
+      - name: Prepare pinned release trust anchor
+        if: github.ref == 'refs/heads/main'
+        env:
+          ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release build.' >&2; exit 1; }
+          go run tools/prepare_trust_v510.go
+          gofmt -w buildsrc/update_trust_v510.go
+          test -s channel/update-public-key.hex
+          ! grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
 
       - name: Security invariants
         run: |
@@ -105,7 +122,13 @@ jobs:
           grep -q 'signed manifest requires size and Ed25519 signature' buildsrc/main.go
           grep -q 'func pcOSVerifySignedUpdatePayload' buildsrc/pc_os_update_enforce_v510.go
           grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
+          grep -q 'pcOSPinnedUpdatePublicKeyHex' buildsrc/pc_os_v510.go
+          grep -q 'Ed25519 update public key is not pinned in this build' buildsrc/pc_os_v510.go
           grep -q 'relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go
+          if grep -q 'update-public-key.hex' buildsrc/pc_os_v510.go; then
+            echo 'Trust invariant failed: runtime verifier still reads a mutable public-key file.' >&2
+            exit 1
+          fi
           if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go buildsrc/pc_os_update_enforce_v510.go; then
             echo 'Zero-UI invariant failed: executable shell launch reference found in PC OS modules.' >&2
             exit 1
@@ -124,15 +147,16 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_update_enforce_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_update_enforce_v510.go update_trust_v510.go
 
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
         run: |
           set -euo pipefail
+          grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
           SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
           SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
-          printf '{"version":"5.1.0","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"publishable":false,"notes":"feature build only; release remains fail-closed until Ed25519 signing"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          printf '{"version":"5.1.0","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"publishable":false,"notes":"feature build only; auto-update trust intentionally fail-closed until signed main release"}\n' "$SHA" "$SIZE" > channel/metadata.json
           sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
 
       - name: Sign release metadata
@@ -143,6 +167,8 @@ jobs:
           set -euo pipefail
           test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release.' >&2; exit 1; }
           go run tools/sign_metadata_v510.go
+          grep -q '"algorithm":"Ed25519"' channel/metadata.json
+          test -s channel/update-public-key.hex
 
       - name: Upload verification artifact
         uses: actions/upload-artifact@v4
@@ -152,6 +178,7 @@ jobs:
             channel/ZhiroxAISupervisor.exe
             channel/ZhiroxAISupervisor.exe.sha256
             channel/metadata.json
+            channel/update-public-key.hex
           if-no-files-found: error
 
       - name: Publish signed main release channel
