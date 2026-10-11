@@ -266,14 +266,26 @@ jobs:
             channel/update-public-key.hex
           if-no-files-found: error
 
-      - name: Publish signed main release channel
+      - name: Stage signed main release candidate without production promotion
         if: github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
+          CANDIDATE_DIR='release-candidates/v5.1.0'
+          rm -rf "$CANDIDATE_DIR"
+          mkdir -p "$CANDIDATE_DIR"
+          cp channel/ZhiroxAISupervisor.exe "$CANDIDATE_DIR/ZhiroxAISupervisor.exe"
+          cp channel/ZhiroxAISupervisor.exe.sha256 "$CANDIDATE_DIR/ZhiroxAISupervisor.exe.sha256"
+          cp channel/metadata.json "$CANDIDATE_DIR/metadata.json"
+          cp channel/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
+          printf '{"version":"5.1.0","source_commit":"%s","workflow_run_id":"%s","signed":true,"production_promoted":false,"promotion_requires_explicit_cutover":true}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add channel/ZhiroxAISupervisor.exe channel/ZhiroxAISupervisor.exe.sha256 channel/metadata.json channel/update-public-key.hex
+          git add "$CANDIDATE_DIR"
+          if git diff --cached --name-only | grep -q '^channel/'; then
+            echo 'Refusing candidate stage: production channel path was accidentally staged.' >&2
+            exit 1
+          fi
           if ! git diff --cached --quiet; then
-            git commit -m 'Publish signed Zhirox PC OS v5.1.0 [skip ci]'
+            git commit -m 'Stage signed Zhirox PC OS v5.1.0 candidate [skip ci]'
             git push
           fi
