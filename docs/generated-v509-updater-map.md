@@ -1,8 +1,105 @@
-# Generated updater integration map
+# Generated hardened updater integration body map
 
-> Static source only; secrets/config values are not included.
+> Generated from restored + patched v5.0.9 source. Contains code only; no runtime config values or secrets.
 
-## `checkForUpdate`
+## main.go: versionParts
+
+```go
+func versionParts(v string) []int {
+	v = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(v), "v"))
+	main := strings.SplitN(v, "-", 2)[0]
+	raw := strings.Split(main, ".")
+	out := make([]int, 3)
+	for i := 0; i < len(out) && i < len(raw); i++ {
+		n, _ := strconv.Atoi(raw[i])
+		out[i] = n
+	}
+	return out
+}
+```
+
+## main.go: newerVersion
+
+```go
+func newerVersion(remote, current string) bool {
+	a := versionParts(remote)
+	b := versionParts(current)
+	for i := 0; i < 3; i++ {
+		if a[i] > b[i] {
+			return true
+		}
+		if a[i] < b[i] {
+			return false
+		}
+	}
+	return false
+}
+```
+
+## main.go: updateURLAllowed
+
+```go
+func updateURLAllowed(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme == "http" {
+		h := strings.ToLower(u.Hostname())
+		return h == "127.0.0.1" || h == "localhost" || h == "::1"
+	}
+	return false
+}
+```
+
+## main.go: absoluteUpdateURL
+
+```go
+func absoluteUpdateURL(manifestURL, fileURL string) (string, error) {
+	u, err := url.Parse(fileURL)
+	if err != nil {
+		return "", err
+	}
+	if u.IsAbs() {
+		return u.String(), nil
+	}
+	base, err := url.Parse(manifestURL)
+	if err != nil {
+		return "", err
+	}
+	return base.ResolveReference(u).String(), nil
+}
+```
+
+## main.go: downloadWithAgentAuth
+
+```go
+func downloadWithAgentAuth(rawURL string) ([]byte, error) {
+	if !updateURLAllowed(rawURL) {
+		return nil, errors.New("update URL must use HTTPS (HTTP allowed only for localhost)")
+	}
+	req, _ := http.NewRequest("GET", rawURL, nil)
+	relayHeaders(req)
+	if req.URL == nil || req.URL.Hostname() != "vllwundrtrgdqmkqbduy.supabase.co" {
+		req.Header.Del("Authorization")
+	}
+	resp, err := zhiroxDoWithRetry(httpClient, req, 3)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
+}
+```
+
+## main.go: checkForUpdate
 
 ```go
 func checkForUpdate() error {
@@ -87,7 +184,7 @@ func checkForUpdate() error {
 }
 ```
 
-## `autoUpdateLoop`
+## main.go: autoUpdateLoop
 
 ```go
 func autoUpdateLoop() {
@@ -105,119 +202,7 @@ func autoUpdateLoop() {
 }
 ```
 
-## `downloadWithAgentAuth`
-
-```go
-func downloadWithAgentAuth(rawURL string) ([]byte, error) {
-	if !updateURLAllowed(rawURL) {
-		return nil, errors.New("update URL must use HTTPS (HTTP allowed only for localhost)")
-	}
-	req, _ := http.NewRequest("GET", rawURL, nil)
-	relayHeaders(req)
-	if req.URL == nil || req.URL.Hostname() != "vllwundrtrgdqmkqbduy.supabase.co" {
-		req.Header.Del("Authorization")
-	}
-	resp, err := zhiroxDoWithRetry(httpClient, req, 3)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
-}
-```
-
-## `absoluteUpdateURL`
-
-```go
-func absoluteUpdateURL(manifestURL, fileURL string) (string, error) {
-	u, err := url.Parse(fileURL)
-	if err != nil {
-		return "", err
-	}
-	if u.IsAbs() {
-		return u.String(), nil
-	}
-	base, err := url.Parse(manifestURL)
-	if err != nil {
-		return "", err
-	}
-	return base.ResolveReference(u).String(), nil
-}
-```
-
-## `updateURLAllowed`
-
-```go
-func updateURLAllowed(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	if u.Scheme == "https" {
-		return true
-	}
-	if u.Scheme == "http" {
-		h := strings.ToLower(u.Hostname())
-		return h == "127.0.0.1" || h == "localhost" || h == "::1"
-	}
-	return false
-}
-```
-
-## `newerVersion`
-
-```go
-func newerVersion(remote, current string) bool {
-	a := versionParts(remote)
-	b := versionParts(current)
-	for i := 0; i < 3; i++ {
-		if a[i] > b[i] {
-			return true
-		}
-		if a[i] < b[i] {
-			return false
-		}
-	}
-	return false
-}
-```
-
-## `versionParts`
-
-```go
-func versionParts(v string) []int {
-	v = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(v), "v"))
-	main := strings.SplitN(v, "-", 2)[0]
-	raw := strings.Split(main, ".")
-	out := make([]int, 3)
-	for i := 0; i < len(out) && i < len(raw); i++ {
-		n, _ := strconv.Atoi(raw[i])
-		out[i] = n
-	}
-	return out
-}
-```
-
-## `writeHealthMarker`
-
-```go
-func writeHealthMarker() {
-	marker := map[string]interface{}{
-		"version":    version,
-		"agent_id":   cfg.AgentID,
-		"pid":        os.Getpid(),
-		"started_at": time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	b, _ := json.Marshal(marker)
-	_ = os.WriteFile(filepath.Join(baseDir, "update-health.json"), b, 0600)
-}
-```
-
-## `cleanupOldVersionArtifacts`
+## main.go: cleanupOldVersionArtifacts
 
 ```go
 func cleanupOldVersionArtifacts() ([]string, error) {
@@ -390,13 +375,67 @@ func cleanupOldVersionArtifacts() ([]string, error) {
 }
 ```
 
-## `UpdateManifest`
+## main.go: cleanupLoop
 
 ```go
-type UpdateManifest struct {
-	Version string `json:"version"`
-	URL     string `json:"url"`
-	SHA256  string `json:"sha256"`
-	Notes   string `json:"notes,omitempty"`
+func cleanupLoop() {
+    // Owner policy: permanent automatic cleanup is always enabled.
+    // The health-gate delay is fixed so a stale legacy config cannot postpone cleanup.
+    cfg.AutoCleanupOldVersions = true
+    time.Sleep(120 * time.Second)
+
+    for {
+        healthy := true
+        for i := 0; i < 3; i++ {
+            if err := sendHeartbeat(); err != nil {
+                log.Printf("old-version cleanup health check %d/3 failed: %v", i+1, err)
+                healthy = false
+                break
+            }
+            if i < 2 {
+                time.Sleep(15 * time.Second)
+            }
+        }
+        if !healthy {
+            time.Sleep(5 * time.Minute)
+            continue
+        }
+
+        deleted, err := cleanupOldVersionArtifacts()
+        if err != nil {
+            log.Printf("old-version cleanup: %v", err)
+            time.Sleep(5 * time.Minute)
+            continue
+        }
+        if len(deleted) > 0 {
+            log.Printf("clean-runtime cleanup removed after health verification: %s", strings.Join(deleted, ", "))
+        }
+
+        ssisDeleted, ssisBytes, ssisErr := cleanupSSISScaleOutLogsOnce()
+        if ssisErr != nil {
+            log.Printf("SSIS Scale Out 14-day cleanup: %v", ssisErr)
+            time.Sleep(5 * time.Minute)
+            continue
+        }
+        if ssisDeleted > 0 {
+            log.Printf("SSIS Scale Out 14-day cleanup removed %d old log files (%d bytes)", ssisDeleted, ssisBytes)
+        }
+        return
+    }
+}
+```
+
+## main.go: writeHealthMarker
+
+```go
+func writeHealthMarker() {
+	marker := map[string]interface{}{
+		"version":    version,
+		"agent_id":   cfg.AgentID,
+		"pid":        os.Getpid(),
+		"started_at": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	b, _ := json.Marshal(marker)
+	_ = os.WriteFile(filepath.Join(baseDir, "update-health.json"), b, 0600)
 }
 ```

@@ -185,3 +185,7 @@
 ## Relevant call relationships
 - `sendHeartbeat` is defined in `main.go`
 - `commandLoop` is defined in `main.go`
+- `heartbeatLoop` is defined in `main.go`
+- `checkForUpdate` is defined in `main.go`
+- `autoUpdateLoop` is defined in `main.go`
+- `writeHealthMarker` is defined in `main.go`
