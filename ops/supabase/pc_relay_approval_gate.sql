@@ -40,6 +40,8 @@ create index if not exists pc_relay_command_approvals_agent_idx
 create index if not exists pc_relay_command_approvals_open_idx
   on public.pc_relay_command_approvals(agent_id, expires_at)
   where used_at is null;
+create index if not exists pc_relay_command_approvals_command_id_idx
+  on public.pc_relay_command_approvals(command_id);
 
 alter table public.pc_relay_command_approvals enable row level security;
 revoke all on table public.pc_relay_command_approvals from anon, authenticated;
