@@ -23,12 +23,13 @@ jobs:
           python3 tools/patch_v505.py
           python3 tools/patch_v506.py
           gofmt -w buildsrc/*.go
-      - name: Inspect protection gates only
+      - name: Inspect all mutating protection gates
         run: |
-          grep -Rni -A 120 -B 20 'func protectedPath' buildsrc || true
-          echo '--- ALLOWED PATH ---'
-          grep -Rni -A 100 -B 20 'func allowedPath' buildsrc || true
-          echo '--- FILE WRITE GATES ---'
-          grep -Rni -A 90 -B 15 'func fileDeleteAction\|func fileMoveAction\|func fileQuarantineAction\|func fileCopyAction\|func fileWriteTextAction\|func mkdirAction' buildsrc || true
-          echo '--- CLEANUP ---'
-          grep -Rni -A 170 -B 15 'func cleanupOldVersionArtifacts' buildsrc || true
+          echo '--- OWNER PATH ---'
+          grep -Rni -A 80 -B 20 'func ownerPath' buildsrc || true
+          echo '--- GUARD PROTECTED USAGES ---'
+          grep -Rni -C 8 'guardProtected' buildsrc || true
+          echo '--- PROCESS / APP / SERVICE MUTATIONS ---'
+          grep -Rni -A 100 -B 15 'func processTerminate\|func restartApp\|func runApp\|func restartService\|func serviceControl\|func serviceStartTypeSet' buildsrc || true
+          echo '--- OTHER PATH MUTATIONS ---'
+          grep -Rni -A 80 -B 15 'func directoryCopy\|func archiveCreate\|func archiveExtract\|func msiInstall\|func msiUninstall\|func driverInstall\|func printerQueue' buildsrc || true
