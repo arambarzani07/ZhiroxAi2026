@@ -54,6 +54,16 @@ func pcOSCanonicalWindowsPath(raw string) (string, error) {
         return "", errors.New("alternate data streams are not allowed in backup paths")
     }
 
+    // Fail closed on explicit navigation segments before normalization. A path
+    // such as D:\\ZhiroxBackups\\nested\\..\\a.bak may normalize back inside
+    // the vault, but accepting it weakens the direct-child invariant and can
+    // create policy ambiguity across parsers/filesystem APIs.
+    for _, segment := range strings.Split(s[3:], `\`) {
+        if segment == "." || segment == ".." {
+            return "", errors.New("dot path segments are not allowed in backup paths")
+        }
+    }
+
     cleaned := path.Clean(strings.ReplaceAll(s, `\`, "/"))
     cleaned = strings.ReplaceAll(cleaned, "/", `\`)
     if len(cleaned) < 3 || cleaned[1] != ':' || cleaned[2] != '\\' {
