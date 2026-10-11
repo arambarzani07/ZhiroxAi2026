@@ -1,4 +1,4 @@
-name: Inspect read actions
+name: Inspect update actions
 
 on:
   push:
@@ -19,9 +19,8 @@ jobs:
           mkdir -p buildsrc
           cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
-      - name: Inspect exact read implementations
+      - name: Inspect supported update actions
         run: |
-          echo '--- main.go lines 760-850 ---'
-          nl -ba buildsrc/main.go | sed -n '760,850p'
-          echo '--- allowedPath lines 600-660 ---'
-          nl -ba buildsrc/main.go | sed -n '600,660p'
+          grep -Rni -E 'checkForUpdate|autoUpdateLoop|self.?update|update.*action|case ".*update|updater' buildsrc/*.go | head -250
+          echo '--- command switch ---'
+          grep -Rni -B5 -A10 'case "' buildsrc/*.go | head -700
