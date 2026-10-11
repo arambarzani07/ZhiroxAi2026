@@ -10,6 +10,7 @@ on:
       - '.github/workflows/build-v510.yml'
       - 'src/pc_os_v510.go'
       - 'src/pc_os_cloud_v510.go'
+      - 'src/pc_os_windows_v510.go'
       - 'src/pc_os_v510_test.go'
       - 'ops/supabase/zhirox-pc-relay-v13.ts'
       - 'ops/supabase/pc_os_v510.sql'
@@ -74,6 +75,7 @@ jobs:
           set -euo pipefail
           cp src/pc_os_v510.go buildsrc/pc_os_v510.go
           cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
           python3 tools/patch_v510.py
           gofmt -w buildsrc/*.go
 
@@ -85,6 +87,8 @@ jobs:
           grep -q 'pc_os_verify_update' buildsrc/main.go
           grep -q 'go pcOSBackgroundLoop()' buildsrc/main.go
           grep -q 'go pcOSCloudLoop()' buildsrc/main.go
+          grep -q 'func pcOSWindowsInventory' buildsrc/pc_os_windows_v510.go
+          grep -q 'func pcOSWindowsGuardian' buildsrc/pc_os_windows_v510.go
           grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
           grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
           grep -q 'operation != "start"' buildsrc/owner_actions.go
@@ -92,9 +96,13 @@ jobs:
           grep -q 'arbitrary_shell' buildsrc/pc_os_v510.go
           grep -q 'ed25519.Verify' buildsrc/pc_os_v510.go
           grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
-          grep -q 'Relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go || grep -q 'relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go
-          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go; then
+          grep -q 'relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go
+          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go; then
             echo 'Zero-UI invariant failed: executable shell launch reference found in PC OS modules.' >&2
+            exit 1
+          fi
+          if grep -Eqi 'serviceControl\(|processTerminate\(|fileDeleteAction\(|registry(Set|Delete)Action\(|firewallRule(Add|Delete|Set)Action\(|driverInstallInfAction\(|msi(Install|Uninstall)Action\(' buildsrc/pc_os_windows_v510.go; then
+            echo 'Read-only invariant failed: mutating structured action referenced by Windows integration.' >&2
             exit 1
           fi
 
@@ -107,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go
 
       - name: Unsigned branch metadata
         if: github.ref != 'refs/heads/main'
