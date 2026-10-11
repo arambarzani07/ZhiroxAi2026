@@ -4,8 +4,8 @@ main = Path('buildsrc/main.go')
 text = main.read_text()
 
 # Wire the enterprise PC OS surface into the existing structured command switch.
-# All new remote commands in v5.1.0 are read-only. The only local write performed
-# by the module is its own atomic health state under the active ZhiroxAI root.
+# All new remote commands in v5.1.0 are read-only. Local module writes are limited
+# to atomic PC OS status files under the active ZhiroxAI root.
 old = '''\tcase "binary_phrase_probe":
 \t\tout, err = binaryPhraseProbe(sarg(c.Args, "path"), sarg(c.Args, "needle"))
 \tcase "support_bundle":'''
@@ -46,12 +46,12 @@ if old not in text:
     raise SystemExit('v5.1.0 command switch insertion point not found')
 text = text.replace(old, new, 1)
 
-# Start the shellless local health-state writer alongside the pre-existing cleanup
-# worker. It never restarts/stops/deletes business assets and never touches Hikvision.
+# Start shellless local and authenticated cloud telemetry beside the existing
+# cleanup worker. Neither loop can restart/stop/delete business assets or touch DVR.
 needle = '\tgo cleanupLoop()'
 if needle not in text:
     raise SystemExit('cleanupLoop startup insertion point not found')
-text = text.replace(needle, needle + '\n\tgo pcOSBackgroundLoop()', 1)
+text = text.replace(needle, needle + '\n\tgo pcOSBackgroundLoop()\n\tgo pcOSCloudLoop()', 1)
 
 if '5.0.9' not in text:
     raise SystemExit('expected v5.0.9 base version not found')
