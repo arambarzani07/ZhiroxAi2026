@@ -1,4 +1,4 @@
-name: Inspect update actions
+name: Inspect command loop
 
 on:
   push:
@@ -19,8 +19,8 @@ jobs:
           mkdir -p buildsrc
           cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
-      - name: Inspect supported update actions
+      - name: Inspect command result loop
         run: |
-          grep -Rni -E 'checkForUpdate|autoUpdateLoop|self.?update|update.*action|case ".*update|updater' buildsrc/*.go | head -250
-          echo '--- command switch ---'
-          grep -Rni -B5 -A10 'case "' buildsrc/*.go | head -700
+          grep -Rni -E 'postResult|resultURL|nextCommand|commandLoop|poll|executeCommand|sendResult|/result|/next' buildsrc/*.go | head -250
+          echo '--- loop context 2000-2100 ---'
+          nl -ba buildsrc/main.go | sed -n '1980,2105p'
