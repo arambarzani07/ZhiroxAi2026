@@ -1,0 +1,26 @@
+name: Inspect Zhirox Source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore source
+        run: |
+          mkdir -p buildsrc
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+      - name: Show read-only action dispatch context
+        run: |
+          grep -Rni -C 35 'find_system' buildsrc || true
+          echo '--- HEALTH SCORE CONTEXT ---'
+          grep -Rni -C 25 'health_score\|HealthScore\|disk_low' buildsrc || true
