@@ -33,6 +33,22 @@ func main() {
         fatal("release signing seed must be base64-encoded 32-byte Ed25519 seed")
     }
 
+    privateKey := ed25519.NewKeyFromSeed(seed)
+    publicKey := privateKey.Public().(ed25519.PublicKey)
+    publicHex := hex.EncodeToString(publicKey)
+
+    // The public key file is prepared before compilation and is embedded into
+    // the binary through update_trust_v510.go. Refuse to sign if the signing
+    // seed does not match that already-prepared trust anchor.
+    pinnedRaw, err := os.ReadFile(filepath.Clean("channel/update-public-key.hex"))
+    if err != nil {
+        fatal("compiled trust anchor marker is missing: " + err.Error())
+    }
+    pinnedHex := strings.ToLower(strings.TrimSpace(string(pinnedRaw)))
+    if pinnedHex == "" || pinnedHex != strings.ToLower(publicHex) {
+        fatal("release signing key does not match the compiled pinned Ed25519 trust anchor")
+    }
+
     artifact := filepath.Clean("channel/ZhiroxAISupervisor.exe")
     raw, err := os.ReadFile(artifact)
     if err != nil {
@@ -42,8 +58,6 @@ func main() {
     hash := hex.EncodeToString(sum[:])
     size := int64(len(raw))
 
-    privateKey := ed25519.NewKeyFromSeed(seed)
-    publicKey := privateKey.Public().(ed25519.PublicKey)
     canonical := []byte("5.1.0|" + hash + "|" + strconv.FormatInt(size, 10))
     sig := ed25519.Sign(privateKey, canonical)
 
@@ -54,7 +68,7 @@ func main() {
         Size: size,
         Signature: base64.StdEncoding.EncodeToString(sig),
         Algorithm: "Ed25519",
-        Notes: "Zhirox PC OS enterprise-safe modules; critical business lock preserved; signed fail-closed update chain",
+        Notes: "Zhirox PC OS enterprise-safe modules; critical business lock preserved; pinned Ed25519 fail-closed update chain",
     }
     encoded, err := json.Marshal(m)
     if err != nil {
@@ -66,10 +80,7 @@ func main() {
     if err := os.WriteFile("channel/ZhiroxAISupervisor.exe.sha256", []byte(hash+"  ZhiroxAISupervisor.exe\n"), 0644); err != nil {
         fatal(err.Error())
     }
-    if err := os.WriteFile("channel/update-public-key.hex", []byte(hex.EncodeToString(publicKey)+"\n"), 0644); err != nil {
-        fatal(err.Error())
-    }
-    fmt.Println("signed", artifact, hash)
+    fmt.Println("signed", artifact, hash, "with pinned Ed25519 trust anchor")
 }
 
 func fatal(msg string) {
