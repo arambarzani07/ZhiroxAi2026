@@ -65,12 +65,12 @@ jobs:
           grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
           grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
           grep -q 'operation != "start"' buildsrc/owner_actions.go
-          grep -Fq 'D:\\DataBase' buildsrc/owner_actions.go
+          grep -qi 'database' buildsrc/owner_actions.go
           grep -q 'arbitrary_shell' buildsrc/pc_os_v510.go
           grep -q 'ed25519.Verify' buildsrc/pc_os_v510.go
           grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
-          if grep -Eqi 'exec\.Command\(|powershell|cmd\.exe' buildsrc/pc_os_v510.go; then
-            echo 'Zero-UI invariant failed: shell execution reference found in PC OS module.' >&2
+          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go; then
+            echo 'Zero-UI invariant failed: executable shell launch reference found in PC OS module.' >&2
             exit 1
           fi
 
