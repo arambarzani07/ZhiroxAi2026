@@ -1,5 +1,7 @@
 -- Zhirox relay structured-mutation approval gate.
 -- Additive only: no existing command/agent rows are modified.
+-- The RPC is SECURITY INVOKER: service_role already owns the exact table
+-- privileges it needs, so the function never requires privilege elevation.
 
 create table if not exists public.pc_relay_command_approvals (
   id uuid primary key default gen_random_uuid(),
@@ -23,6 +25,7 @@ create index if not exists pc_relay_command_approvals_open_idx
 
 alter table public.pc_relay_command_approvals enable row level security;
 revoke all on table public.pc_relay_command_approvals from anon, authenticated;
+grant select, insert, update, delete on table public.pc_relay_command_approvals to service_role;
 
 create or replace function public.enqueue_approved_pc_relay_command(
   p_approval_id uuid,
@@ -31,8 +34,8 @@ create or replace function public.enqueue_approved_pc_relay_command(
   p_args jsonb
 ) returns jsonb
 language plpgsql
-security definer
-set search_path = public
+security invoker
+set search_path = pg_catalog, public
 as $$
 declare
   a public.pc_relay_command_approvals%rowtype;
