@@ -38,7 +38,7 @@ jobs:
           grep -q 'zhiroxai-universalownercontrol-v' buildsrc/main.go
           grep -q 'zhiroxai-zeroui-absolute-v' buildsrc/main.go
           grep -q 'zhiroxai-final-background-service-' buildsrc/main.go
-          grep -q 'ZhiroxCoreService.exe' buildsrc/main.go
+          grep -q 'zhiroxcoreservice.exe' buildsrc/main.go
           grep -Fq 'C:\Users\Administrator\OneDrive\Desktop\zhiroxai' buildsrc/main.go
       - name: Compile check
         working-directory: buildsrc
