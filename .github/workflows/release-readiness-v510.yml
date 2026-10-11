@@ -27,27 +27,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate non-secret release gate record
+      - name: Evaluate all release blockers
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
+          set -u
+          blocked=0
+
+          echo '--- Bootstrap rollback gate ---'
+          if python3 - <<'PY'
           import json
           from pathlib import Path
           gate=json.loads(Path('release-gates/v5.1.0.json').read_text())
-          assert gate['version']=='5.1.0'
-          assert gate['production_expected_agent_version']=='5.0.8'
-          assert gate['production_expected_channel_version']=='5.0.8'
+          if gate.get('version')!='5.1.0':
+              raise SystemExit('RELEASE_READINESS=BLOCKED: gate version mismatch')
+          if gate.get('production_expected_agent_version')!='5.0.8' or gate.get('production_expected_channel_version')!='5.0.8':
+              raise SystemExit('RELEASE_READINESS=BLOCKED: production pin record mismatch')
           if gate.get('bootstrap_rollback_proven') is not True:
               raise SystemExit('RELEASE_READINESS=BLOCKED: 5.0.8 -> 5.1.0 bootstrap rollback is not proven')
           evidence=gate.get('bootstrap_rollback_evidence') or []
           if not evidence:
               raise SystemExit('RELEASE_READINESS=BLOCKED: bootstrap rollback evidence is missing')
+          print('BOOTSTRAP_ROLLBACK=PROVEN')
           PY
+          then :; else blocked=1; fi
 
-      - name: Validate signing secret shape without disclosure
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
+          echo '--- Signing secret gate ---'
+          if python3 - <<'PY'
           import base64, os
           value=os.environ.get('ZHIROX_UPDATE_ED25519_SEED_B64','').strip()
           if not value:
@@ -60,30 +64,37 @@ jobs:
               raise SystemExit('RELEASE_READINESS=BLOCKED: decoded Ed25519 seed must be exactly 32 bytes')
           print('SIGNING_SECRET_SHAPE=VALID')
           PY
+          then :; else blocked=1; fi
 
-      - name: Require protected main with status checks
-        run: |
-          set -euo pipefail
-          PROTECTED=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protected')
-          if [ "$PROTECTED" != "true" ]; then
+          echo '--- Main branch protection gate ---'
+          protected=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protected' 2>/dev/null || echo false)
+          if [ "$protected" != "true" ]; then
             echo 'RELEASE_READINESS=BLOCKED: main branch is not protected' >&2
-            exit 1
-          fi
-          ENFORCEMENT=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protection.required_status_checks.enforcement_level // "off"')
-          if [ "$ENFORCEMENT" = "off" ]; then
-            echo 'RELEASE_READINESS=BLOCKED: required status checks are not enforced on main' >&2
-            exit 1
+            blocked=1
+          else
+            enforcement=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protection.required_status_checks.enforcement_level // "off"' 2>/dev/null || echo off)
+            if [ "$enforcement" = "off" ]; then
+              echo 'RELEASE_READINESS=BLOCKED: required status checks are not enforced on main' >&2
+              blocked=1
+            else
+              echo "MAIN_REQUIRED_STATUS_CHECKS=$enforcement"
+            fi
           fi
 
-      - name: Require production channel to remain pinned during readiness
-        run: |
-          set -euo pipefail
-          grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v15.ts
-          if grep -q 'production_promoted":true' release-gates/v5.1.0.json; then
-            echo 'RELEASE_READINESS=BLOCKED: production promotion must be a separate explicit cutover' >&2
+          echo '--- Production pin gate ---'
+          if ! grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v15.ts; then
+            echo 'RELEASE_READINESS=BLOCKED: candidate relay no longer pins production update manifest to 5.0.8' >&2
+            blocked=1
+          else
+            echo 'PRODUCTION_CHANNEL_PIN=5.0.8'
+          fi
+          if grep -q '"production_promotion_approved"[[:space:]]*:[[:space:]]*true' release-gates/v5.1.0.json; then
+            echo 'RELEASE_READINESS=BLOCKED: production promotion must remain a separate explicit cutover' >&2
+            blocked=1
+          fi
+
+          if [ "$blocked" -ne 0 ]; then
+            echo 'RELEASE_READINESS=BLOCKED' >&2
             exit 1
           fi
-          echo 'PRODUCTION_CHANNEL_PIN=5.0.8'
-
-      - name: Mark readiness check passed
-        run: echo 'RELEASE_READINESS=READY'
+          echo 'RELEASE_READINESS=READY'
