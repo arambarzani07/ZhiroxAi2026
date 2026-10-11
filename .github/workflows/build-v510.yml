@@ -68,7 +68,11 @@ jobs:
           grep -q 'approval_required' ops/supabase/zhirox-pc-relay-v15.ts
           grep -q 'enqueue_approved_pc_relay_command' ops/supabase/zhirox-pc-relay-v15.ts
           grep -q 'binaryReadRefused' ops/supabase/zhirox-pc-relay-v15.ts
-          grep -qi 'security definer' ops/supabase/pc_relay_approval_gate.sql
+          grep -qi 'security invoker' ops/supabase/pc_relay_approval_gate.sql
+          if grep -qi 'security definer' ops/supabase/pc_relay_approval_gate.sql; then
+            echo 'Approval RPC must not use SECURITY DEFINER.' >&2
+            exit 1
+          fi
           grep -q 'approval_args_mismatch' ops/supabase/pc_relay_approval_gate.sql
           grep -qi 'grant execute.*service_role' ops/supabase/pc_relay_approval_gate.sql
           python3 - <<'PY'
