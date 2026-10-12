@@ -162,6 +162,13 @@ for invariant in (
     if invariant not in text:
         raise SystemExit(f'Zero-UI hardening invariant missing after patch: {invariant}')
 
+# The legacy applyBackgroundFlags implementation used syscall directly in main.go.
+# Zero-UI now owns those flags in pc_os_windows_v510.go, so keep generated main.go
+# free of the stale import. Refuse to proceed if a later source change still uses it.
+text = text.replace('\t"syscall"\n', '', 1)
+if 'syscall.' in text:
+    raise SystemExit('Zero-UI import cleanup refused: main.go still uses syscall')
+
 
 signed_check = r'''func checkForUpdate() error {
 \tif !cfg.AutoUpdate {
