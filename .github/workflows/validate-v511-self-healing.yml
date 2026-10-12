@@ -87,17 +87,18 @@ jobs:
           fi
           python3 - <<'PY'
           from pathlib import Path
+          import re
           s=Path('buildsrc/pc_os_recovery_v511_windows.go').read_text()
           start=s.index('func pcOSSetCoreRecovery')
           block=s[start:]
-          assert '{Type: pcOSSCActionRestart, Delay: 10_000}' in block
-          assert '{Type: pcOSSCActionRestart, Delay: 30_000}' in block
-          assert '{Type: pcOSSCActionRestart, Delay: 60_000}' in block
-          assert '{Type: pcOSSCActionNone, Delay: 0}' in block
-          # Setter must not configure reboot or an external command.
-          setter=block.split('func ',1)[0] if 'func ' in block[len('func pcOSSetCoreRecovery'):] else block
-          assert 'RebootMsg:    nil' in block
-          assert 'Command:      nil' in block
+          for delay in ('10_000', '30_000', '60_000'):
+              assert re.search(r'\{Type:\s*pcOSSCActionRestart,\s*Delay:\s*' + delay + r'\}', block), delay
+          assert re.search(r'\{Type:\s*pcOSSCActionNone,\s*Delay:\s*0\}', block)
+          assert re.search(r'RebootMsg:\s*nil', block)
+          assert re.search(r'Command:\s*nil', block)
+          # Setter must never configure SCM reboot/run-command actions.
+          assert 'Type: pcOSSCActionReboot' not in block
+          assert 'Type: pcOSSCActionRunCommand' not in block
           PY
 
       - name: Windows compile and vet
