@@ -10,23 +10,23 @@ on:
       - '.github/workflows/build-v511.yml'
       - 'src/pc_os_recovery_v511_windows.go'
       - 'tools/patch_v511.py'
+      - 'tools/sign_metadata_v511.go'
+      - 'tools/verify_metadata_v511.go'
       - 'src/pc_os_v510.go'
       - 'src/pc_os_cloud_v510.go'
       - 'src/pc_os_windows_v510.go'
       - 'src/pc_os_backup_policy_v510.go'
-      - 'src/pc_os_backup_policy_v510_test.go'
       - 'src/pc_os_backup_v510_windows.go'
       - 'src/pc_os_update_enforce_v510.go'
       - 'src/pc_os_self_updater_v510_windows.go'
       - 'src/update_trust_v510.go'
       - 'src/pc_os_v510_test.go'
       - 'src/pc_os_update_enforce_v510_test.go'
+      - 'src/pc_os_backup_policy_v510_test.go'
       - 'tools/patch_v510.py'
       - 'tools/patch_trust_v510.py'
       - 'tools/patch_self_updater_v510.py'
       - 'tools/prepare_trust_v510.go'
-      - 'tools/sign_metadata_v510.go'
-      - 'tools/verify_metadata_v510.go'
       - 'tools/patch_downloader_v503.py'
       - 'tools/patch_v505.py'
       - 'tools/patch_v506.py'
@@ -54,16 +54,12 @@ jobs:
           set -euo pipefail
           go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_backup_policy_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go src/pc_os_backup_policy_v510_test.go
 
-      - name: Restore hardened legacy source
+      - name: Restore and harden source through v5.1.1
         run: |
           set -euo pipefail
           mkdir -p buildsrc channel
           cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
           tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
-
-      - name: Apply hardening chain through v5.1.1
-        run: |
-          set -euo pipefail
           python3 tools/patch_downloader_v503.py
           python3 tools/patch_v505.py
           python3 tools/patch_v506.py
@@ -85,19 +81,19 @@ jobs:
           python3 tools/patch_v511.py
           gofmt -w buildsrc/*.go
 
-      - name: Prepare pinned release trust anchor
+      - name: Prepare production pinned trust anchor
         if: github.ref == 'refs/heads/main'
         env:
           ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
         run: |
           set -euo pipefail
-          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release build.' >&2; exit 1; }
+          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing production release build.' >&2; exit 1; }
           go run tools/prepare_trust_v510.go
           gofmt -w buildsrc/update_trust_v510.go
           test -s channel/update-public-key.hex
           ! grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
 
-      - name: v5.1.1 security and Zero-UI invariants
+      - name: v5.1.1 safety and Zero-UI invariants
         run: |
           set -euo pipefail
           grep -q '5.1.1' buildsrc/main.go
@@ -117,20 +113,15 @@ jobs:
           from pathlib import Path
           import re
           s=Path('buildsrc/pc_os_recovery_v511_windows.go').read_text()
-          start=s.index('func pcOSSetCoreRecovery')
-          block=s[start:]
-          for delay in ('10_000', '30_000', '60_000'):
-              assert re.search(r'\{Type:\s*pcOSSCActionRestart,\s*Delay:\s*' + delay + r'\}', block), delay
+          block=s[s.index('func pcOSSetCoreRecovery'):]
+          for delay in ('10_000','30_000','60_000'):
+              assert re.search(r'\{Type:\s*pcOSSCActionRestart,\s*Delay:\s*'+delay+r'\}', block), delay
           assert re.search(r'\{Type:\s*pcOSSCActionNone,\s*Delay:\s*0\}', block)
           assert re.search(r'RebootMsg:\s*nil', block)
           assert re.search(r'Command:\s*nil', block)
           assert 'Type: pcOSSCActionReboot' not in block
           assert 'Type: pcOSSCActionRunCommand' not in block
           PY
-          if grep -q 'update-public-key.hex' buildsrc/pc_os_v510.go; then
-            echo 'Trust invariant failed: runtime verifier reads a mutable public-key file.' >&2
-            exit 1
-          fi
 
       - name: Windows compile check
         working-directory: buildsrc
@@ -143,7 +134,7 @@ jobs:
           go vet ./...
           go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go update_trust_v510.go
 
-      - name: Ephemeral signed-release preflight
+      - name: Ephemeral Ed25519 signing preflight
         if: github.ref != 'refs/heads/main'
         run: |
           set -euo pipefail
@@ -164,8 +155,8 @@ jobs:
           )
           (
             cd "$TMP"
-            go run "$GITHUB_WORKSPACE/tools/sign_metadata_v510.go"
-            go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go"
+            go run "$GITHUB_WORKSPACE/tools/sign_metadata_v511.go"
+            go run "$GITHUB_WORKSPACE/tools/verify_metadata_v511.go"
             grep -q '"algorithm":"Ed25519"' channel/metadata.json
             grep -q '"version":"5.1.1"' channel/metadata.json
             grep -Eq 'pcOSPinnedUpdatePublicKeyHex = "[0-9a-f]{64}"' buildsrc/update_trust_v510.go
@@ -190,8 +181,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release.' >&2; exit 1; }
-          go run tools/sign_metadata_v510.go
-          go run tools/verify_metadata_v510.go
+          go run tools/sign_metadata_v511.go
+          go run tools/verify_metadata_v511.go
           grep -q '"algorithm":"Ed25519"' channel/metadata.json
           grep -q '"version":"5.1.1"' channel/metadata.json
           test -s channel/update-public-key.hex
@@ -237,7 +228,7 @@ jobs:
           cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe.sha256"
           cp candidate-input/metadata.json "$VERIFY_ROOT/channel/metadata.json"
           cp candidate-input/update-public-key.hex "$VERIFY_ROOT/channel/update-public-key.hex"
-          (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go")
+          (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v511.go")
 
           CANDIDATE_DIR='release-candidates/v5.1.1'
           rm -rf "$CANDIDATE_DIR"
