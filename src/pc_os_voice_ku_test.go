@@ -35,12 +35,12 @@ func TestKurdishVoiceRejectsUnknownEvent(t *testing.T) {
 func TestKurdishVoiceDefaultPolicyIsPrivateAndZeroUI(t *testing.T) {
 	p := pcOSKurdishVoicePolicy()
 	checks := map[string]interface{}{
-		"default_enabled":      false,
-		"zero_ui":              true,
-		"microphone_enabled":   false,
-		"continuous_listening": false,
-		"network_required":     false,
-		"shell_allowed":        false,
+		"default_enabled":       false,
+		"zero_ui":               true,
+		"microphone_enabled":    false,
+		"continuous_listening":  false,
+		"network_required":      false,
+		"shell_allowed":         false,
 		"free_form_tts_enabled": false,
 	}
 	for key, want := range checks {
