@@ -5,14 +5,14 @@ on:
   pull_request:
     paths:
       - 'release-gates/v5.1.1.json'
-      - 'release-candidates/v5.1.1/update-public-key.hex'
+      - 'release-candidates/v5.1.1/**'
       - '.github/workflows/audit-v511-trust-anchor.yml'
   push:
     branches:
       - main
     paths:
       - 'release-gates/v5.1.1.json'
-      - 'release-candidates/v5.1.1/update-public-key.hex'
+      - 'release-candidates/v5.1.1/**'
       - '.github/workflows/audit-v511-trust-anchor.yml'
 
 permissions:
@@ -21,28 +21,43 @@ permissions:
 jobs:
   trust-anchor-audit:
     runs-on: ubuntu-latest
+    env:
+      EXPECTED_PRODUCTION_KEY: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
       - name: Enforce fail-closed production trust state
         run: |
           set -euo pipefail
+
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           gate = json.loads(Path('release-gates/v5.1.1.json').read_text())
-          expected = gate['production_expected_pinned_public_key_hex'].strip().lower()
+          expected = os.environ['EXPECTED_PRODUCTION_KEY'].strip().lower()
+          recorded_expected = gate['production_expected_pinned_public_key_hex'].strip().lower()
           candidate = Path('release-candidates/v5.1.1/update-public-key.hex').read_text().strip().lower()
-          recorded = gate['candidate_public_key_hex'].strip().lower()
+          recorded_candidate = gate['candidate_public_key_hex'].strip().lower()
 
-          if candidate != recorded:
+          if len(expected) != 64 or any(c not in '0123456789abcdef' for c in expected):
+              raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: pinned production key constant is invalid')
+          if recorded_expected != expected:
+              raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: gate attempted to redefine the independently pinned production key')
+          if candidate != recorded_candidate:
               raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: recorded candidate key does not match staged candidate')
 
           compatible = candidate == expected
+          Path('/tmp/v511-compatible').write_text('1' if compatible else '0')
+
           if compatible:
               if gate.get('trust_anchor_compatible') is not True:
                   raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: compatible key is not marked compatible')
-              print('TRUST_ANCHOR_AUDIT=COMPATIBLE')
           else:
               if gate.get('trust_anchor_compatible') is not False:
                   raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: key mismatch must be fail-closed')
@@ -54,3 +69,15 @@ jobs:
                   raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: mismatch requires durable blocked_reason')
               print('TRUST_ANCHOR_AUDIT=BLOCKED_AS_DESIGNED')
           PY
+
+          if [ "$(cat /tmp/v511-compatible)" = "1" ]; then
+            VERIFY_ROOT=$(mktemp -d)
+            trap 'rm -rf "$VERIFY_ROOT"' EXIT
+            mkdir -p "$VERIFY_ROOT/channel"
+            cp release-candidates/v5.1.1/ZhiroxAISupervisor.exe "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe"
+            cp release-candidates/v5.1.1/ZhiroxAISupervisor.exe.sha256 "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe.sha256"
+            cp release-candidates/v5.1.1/metadata.json "$VERIFY_ROOT/channel/metadata.json"
+            printf '%s\n' "$EXPECTED_PRODUCTION_KEY" > "$VERIFY_ROOT/channel/update-public-key.hex"
+            (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v511.go")
+            echo 'TRUST_ANCHOR_AUDIT=COMPATIBLE_AND_SIGNATURE_VERIFIED'
+          fi
