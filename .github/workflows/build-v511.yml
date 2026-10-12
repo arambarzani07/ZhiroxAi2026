@@ -242,7 +242,7 @@ jobs:
           cp candidate-input/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
           printf '{"version":"5.1.1","source_commit":"%s","workflow_run_id":"%s","signed":true,"production_promoted":false,"promotion_requires_explicit_cutover":true,"agent_rollout_started":false}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
 
-          BRANCH="release/v5.1.1-candidate-${GITHUB_RUN_ID}"
+          BRANCH="release/v5.1.1-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git checkout -b "$BRANCH"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
