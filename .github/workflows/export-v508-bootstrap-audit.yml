@@ -1,0 +1,38 @@
+name: Export v5.0.8 bootstrap audit source
+
+on:
+  push:
+    branches: [feature/pc-os-v510]
+    paths:
+      - '.github/workflows/export-v508-bootstrap-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-v508:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct v5.0.8 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf buildsrc
+          mkdir -p buildsrc
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          gofmt -w buildsrc/*.go
+          grep -q '5.0.8' buildsrc/main.go
+      - name: Upload audit source
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-v5.0.8-bootstrap-audit-src
+          path: buildsrc/
+          retention-days: 1
