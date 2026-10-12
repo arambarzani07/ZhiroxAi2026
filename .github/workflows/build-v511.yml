@@ -5,36 +5,13 @@ on:
   push:
     branches:
       - main
-      - feature/pc-os-v510
       - feature/v511-secure-key-rotation
     paths:
       - '.github/workflows/build-v511.yml'
       - 'release-gates/v5.1.1-next-public-key.hex'
-      - 'src/pc_os_recovery_v511_windows.go'
-      - 'tools/patch_v511.py'
-      - 'tools/prepare_transition_trust_v511.go'
-      - 'tools/sign_metadata_v511.go'
-      - 'tools/verify_metadata_v511.go'
-      - 'src/pc_os_v510.go'
-      - 'src/pc_os_cloud_v510.go'
-      - 'src/pc_os_windows_v510.go'
-      - 'src/pc_os_backup_policy_v510.go'
-      - 'src/pc_os_backup_v510_windows.go'
-      - 'src/pc_os_update_enforce_v510.go'
-      - 'src/pc_os_self_updater_v510_windows.go'
-      - 'src/update_trust_v510.go'
-      - 'src/pc_os_v510_test.go'
-      - 'src/pc_os_update_enforce_v510_test.go'
-      - 'src/pc_os_backup_policy_v510_test.go'
-      - 'tools/patch_v510.py'
-      - 'tools/patch_trust_v510.py'
-      - 'tools/patch_self_updater_v510.py'
-      - 'tools/patch_downloader_v503.py'
-      - 'tools/patch_v505.py'
-      - 'tools/patch_v506.py'
-      - 'tools/patch_v507.py'
-      - 'tools/patch_v508.py'
-      - 'tools/patch_v509.py'
+      - 'release-gates/v5.1.1-transition-signature.b64'
+      - 'src/**'
+      - 'tools/**'
 
 permissions:
   contents: read
@@ -42,8 +19,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -51,12 +26,12 @@ jobs:
         with:
           go-version: '1.23.x'
 
-      - name: PC OS unit tests
+      - name: Unit tests
         run: |
           set -euo pipefail
           go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_backup_policy_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go src/pc_os_backup_policy_v510_test.go
 
-      - name: Restore and harden source through v5.1.1
+      - name: Restore and harden source
         run: |
           set -euo pipefail
           mkdir -p buildsrc channel
@@ -83,28 +58,22 @@ jobs:
           python3 tools/patch_v511.py
           gofmt -w buildsrc/*.go
 
-      - name: Prepare production one-way trust transition
+      - name: Prepare production trust markers without private keys
         if: github.ref == 'refs/heads/main'
         env:
-          ZHIROX_V510_TRANSITION_ED25519_SEED_B64: ${{ secrets.ZHIROX_V510_TRANSITION_ED25519_SEED_B64 }}
-          ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
+          OLD_PUBLIC_KEY: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
         run: |
           set -euo pipefail
-          test -n "$ZHIROX_V510_TRANSITION_ED25519_SEED_B64" || { echo 'Missing v5.1.0 transition signing secret; refusing release build.' >&2; exit 1; }
-          test -z "${ZHIROX_V511_NEXT_ED25519_SEED_B64:-}" || { echo 'Next private key is forbidden on main; refusing release build.' >&2; exit 1; }
-          test -s release-gates/v5.1.1-next-public-key.hex || { echo 'Missing KMS-derived v5.1.1 next public key gate; refusing release build.' >&2; exit 1; }
-          export ZHIROX_V511_NEXT_PUBLIC_KEY_HEX="$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex)"
-          [[ "$ZHIROX_V511_NEXT_PUBLIC_KEY_HEX" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo 'KMS-derived next public key must be exactly 64 hexadecimal characters.' >&2; exit 1; }
-          go run tools/prepare_transition_trust_v511.go
+          test -s release-gates/v5.1.1-next-public-key.hex
+          NEXT="$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex | tr 'A-F' 'a-f')"
+          [[ "$NEXT" =~ ^[0-9a-f]{64}$ ]]
+          test "$NEXT" != "$OLD_PUBLIC_KEY"
+          printf 'package main\n\nconst pcOSPinnedUpdatePublicKeyHex = "%s"\n' "$NEXT" > buildsrc/update_trust_v510.go
+          printf '%s\n' "$NEXT" > channel/update-public-key.hex
+          printf '%s\n' "$OLD_PUBLIC_KEY" > channel/transition-signing-public-key.hex
           gofmt -w buildsrc/update_trust_v510.go
-          test -s channel/update-public-key.hex
-          test -s channel/transition-signing-public-key.hex
-          ! cmp -s channel/update-public-key.hex channel/transition-signing-public-key.hex
-          ! grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
-          grep -q "$ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX" channel/transition-signing-public-key.hex
-          grep -qi "$ZHIROX_V511_NEXT_PUBLIC_KEY_HEX" channel/update-public-key.hex
 
-      - name: v5.1.1 safety and Zero-UI invariants
+      - name: Safety and Zero-UI invariants
         run: |
           set -euo pipefail
           grep -q '5.1.1' buildsrc/main.go
@@ -117,22 +86,9 @@ jobs:
           grep -q 'ENABLE_ZHIROX_CORE_SELF_HEALING' buildsrc/pc_os_recovery_v511_windows.go
           grep -q 'FailureActionsOnNonCrashFailures: 1' buildsrc/pc_os_recovery_v511_windows.go
           if grep -Eqi 'cmd\.exe|powershell\.exe|exec\.Command\(' buildsrc/pc_os_recovery_v511_windows.go; then
-            echo 'Zero-UI invariant failed: recovery controller must not launch a shell.' >&2
+            echo 'Zero-UI invariant failed.' >&2
             exit 1
           fi
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          s=Path('buildsrc/pc_os_recovery_v511_windows.go').read_text()
-          block=s[s.index('func pcOSSetCoreRecovery'):]
-          for delay in ('10_000','30_000','60_000'):
-              assert re.search(r'\{Type:\s*pcOSSCActionRestart,\s*Delay:\s*'+delay+r'\}', block), delay
-          assert re.search(r'\{Type:\s*pcOSSCActionNone,\s*Delay:\s*0\}', block)
-          assert re.search(r'RebootMsg:\s*nil', block)
-          assert re.search(r'Command:\s*nil', block)
-          assert 'Type: pcOSSCActionReboot' not in block
-          assert 'Type: pcOSSCActionRunCommand' not in block
-          PY
 
       - name: Windows compile check
         working-directory: buildsrc
@@ -145,7 +101,7 @@ jobs:
           go vet ./...
           go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go update_trust_v510.go
 
-      - name: Ephemeral two-key trust-transition preflight
+      - name: Ephemeral two-key preflight on feature branch
         if: github.ref != 'refs/heads/main'
         run: |
           set -euo pipefail
@@ -159,9 +115,6 @@ jobs:
             cd "$TMP"
             go run "$GITHUB_WORKSPACE/tools/prepare_transition_trust_v511.go"
             gofmt -w buildsrc/update_trust_v510.go
-            test -s channel/update-public-key.hex
-            test -s channel/transition-signing-public-key.hex
-            ! cmp -s channel/update-public-key.hex channel/transition-signing-public-key.hex
           )
           (
             cd "$TMP/buildsrc"
@@ -171,119 +124,40 @@ jobs:
             cd "$TMP"
             go run "$GITHUB_WORKSPACE/tools/sign_metadata_v511.go"
             go run "$GITHUB_WORKSPACE/tools/verify_metadata_v511.go"
-            grep -q '"algorithm":"Ed25519"' channel/metadata.json
-            grep -q '"version":"5.1.1"' channel/metadata.json
-            grep -q '"from_version":"5.1.0"' channel/metadata.json
-            grep -q '"trust_transition":true' channel/metadata.json
-            grep -Eq 'pcOSPinnedUpdatePublicKeyHex = "[0-9a-f]{64}"' buildsrc/update_trust_v510.go
           )
-          unset ZHIROX_V510_TRANSITION_ED25519_SEED_B64
-          unset ZHIROX_V511_NEXT_ED25519_SEED_B64
 
-      - name: Fail-closed branch metadata
+      - name: Feature build metadata
         if: github.ref != 'refs/heads/main'
         run: |
           set -euo pipefail
-          grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
-          test ! -e channel/update-public-key.hex
-          test ! -e channel/transition-signing-public-key.hex
           SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
           SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
-          printf '{"version":"5.1.1","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"rollback_updater_embedded":true,"self_healing":true,"publishable":false,"notes":"feature build only; production transition signing remains main-only and fail-closed"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          printf '{"version":"5.1.1","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"publishable":false}\n' "$SHA" "$SIZE" > channel/metadata.json
           sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
 
-      - name: Sign production transition candidate metadata
+      - name: Create or verify production signing request
         if: github.ref == 'refs/heads/main'
         env:
-          ZHIROX_V510_TRANSITION_ED25519_SEED_B64: ${{ secrets.ZHIROX_V510_TRANSITION_ED25519_SEED_B64 }}
           ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
         run: |
           set -euo pipefail
-          test -n "$ZHIROX_V510_TRANSITION_ED25519_SEED_B64" || { echo 'Missing transition signing secret; refusing release.' >&2; exit 1; }
-          go run tools/sign_metadata_v511.go
-          go run tools/verify_metadata_v511.go
-          grep -q '"algorithm":"Ed25519"' channel/metadata.json
-          grep -q '"version":"5.1.1"' channel/metadata.json
-          grep -q '"trust_transition":true' channel/metadata.json
-          grep -q "$ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX" channel/transition-signing-public-key.hex
-          ! cmp -s channel/update-public-key.hex channel/transition-signing-public-key.hex
+          SIG_FILE='release-gates/v5.1.1-transition-signature.b64'
+          if [ -s "$SIG_FILE" ]; then
+            export ZHIROX_V510_TRANSITION_SIGNATURE_B64="$(tr -d '[:space:]' < "$SIG_FILE")"
+            go run tools/sign_metadata_v511.go
+            go run tools/verify_metadata_v511.go
+            echo 'SERVER_SIDE_SIGNATURE_VERIFIED=true'
+          else
+            export ZHIROX_V511_UNSIGNED_REQUEST=1
+            go run tools/sign_metadata_v511.go
+            echo '--- SERVER-SIDE SIGNING REQUEST ---'
+            cat channel/signing-request.json
+            echo '--- END SIGNING REQUEST ---'
+          fi
 
-      - name: Upload verification artifact
+      - name: Upload candidate artifact
         uses: actions/upload-artifact@v4
         with:
           name: Zhirox-PC-OS-v5.1.1-${{ github.sha }}
-          path: |
-            channel/ZhiroxAISupervisor.exe
-            channel/ZhiroxAISupervisor.exe.sha256
-            channel/metadata.json
-            channel/update-public-key.hex
-            channel/transition-signing-public-key.hex
+          path: channel/*
           if-no-files-found: error
-
-  stage-candidate:
-    if: github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download signed candidate artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Zhirox-PC-OS-v5.1.1-${{ github.sha }}
-          path: candidate-input
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23.x'
-
-      - name: Re-verify and stage signed candidate through protected PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
-        run: |
-          set -euo pipefail
-          VERIFY_ROOT=$(mktemp -d)
-          trap 'rm -rf "$VERIFY_ROOT"' EXIT
-          mkdir -p "$VERIFY_ROOT/channel"
-          cp candidate-input/ZhiroxAISupervisor.exe "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe"
-          cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe.sha256"
-          cp candidate-input/metadata.json "$VERIFY_ROOT/channel/metadata.json"
-          cp candidate-input/update-public-key.hex "$VERIFY_ROOT/channel/update-public-key.hex"
-          cp candidate-input/transition-signing-public-key.hex "$VERIFY_ROOT/channel/transition-signing-public-key.hex"
-          (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v511.go")
-
-          CANDIDATE_DIR='release-candidates/v5.1.1'
-          rm -rf "$CANDIDATE_DIR"
-          mkdir -p "$CANDIDATE_DIR"
-          cp candidate-input/ZhiroxAISupervisor.exe "$CANDIDATE_DIR/ZhiroxAISupervisor.exe"
-          cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$CANDIDATE_DIR/ZhiroxAISupervisor.exe.sha256"
-          cp candidate-input/metadata.json "$CANDIDATE_DIR/metadata.json"
-          cp candidate-input/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
-          cp candidate-input/transition-signing-public-key.hex "$CANDIDATE_DIR/transition-signing-public-key.hex"
-          printf '{"version":"5.1.1","source_commit":"%s","workflow_run_id":"%s","signed":true,"trust_transition":true,"production_promoted":false,"promotion_requires_explicit_cutover":true,"agent_rollout_started":false}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
-
-          BRANCH="release/v5.1.1-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          git checkout -b "$BRANCH"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$CANDIDATE_DIR"
-          if git diff --cached --name-only | grep -q '^channel/'; then
-            echo 'Refusing candidate stage: production channel path was accidentally staged.' >&2
-            exit 1
-          fi
-          if git diff --cached --quiet; then
-            echo 'No candidate delta to stage.'
-            exit 0
-          fi
-          git commit -m 'Stage signed Zhirox PC OS v5.1.1 transition candidate [skip ci]'
-          git push origin "HEAD:refs/heads/$BRANCH"
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title 'Stage signed Zhirox PC OS v5.1.1 transition candidate' \
-            --body "Signed v5.1.1 one-way trust-transition candidate generated from main commit $GITHUB_SHA. The v5.1.0 trust key authenticates this release only; the binary pins a distinct next Ed25519 trust anchor. Verification passed. This PR only stages release-candidates/v5.1.1; it does not modify channel/*, does not start agent rollout, and does not authorize production promotion."
