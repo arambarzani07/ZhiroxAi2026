@@ -205,6 +205,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -218,7 +219,9 @@ jobs:
         with:
           go-version: '1.23.x'
 
-      - name: Re-verify and stage signed candidate without production promotion
+      - name: Re-verify and stage signed candidate through protected PR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VERIFY_ROOT=$(mktemp -d)
@@ -239,6 +242,8 @@ jobs:
           cp candidate-input/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
           printf '{"version":"5.1.1","source_commit":"%s","workflow_run_id":"%s","signed":true,"production_promoted":false,"promotion_requires_explicit_cutover":true,"agent_rollout_started":false}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
 
+          BRANCH="release/v5.1.1-candidate-${GITHUB_RUN_ID}"
+          git checkout -b "$BRANCH"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add "$CANDIDATE_DIR"
@@ -246,7 +251,14 @@ jobs:
             echo 'Refusing candidate stage: production channel path was accidentally staged.' >&2
             exit 1
           fi
-          if ! git diff --cached --quiet; then
-            git commit -m 'Stage signed Zhirox PC OS v5.1.1 candidate [skip ci]'
-            git push
+          if git diff --cached --quiet; then
+            echo 'No candidate delta to stage.'
+            exit 0
           fi
+          git commit -m 'Stage signed Zhirox PC OS v5.1.1 candidate [skip ci]'
+          git push origin "HEAD:refs/heads/$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title 'Stage signed Zhirox PC OS v5.1.1 candidate' \
+            --body "Signed v5.1.1 candidate generated from main commit $GITHUB_SHA. Ed25519 verification passed. This PR only stages release-candidates/v5.1.1; it does not modify channel/*, does not start agent rollout, and does not authorize production promotion."
