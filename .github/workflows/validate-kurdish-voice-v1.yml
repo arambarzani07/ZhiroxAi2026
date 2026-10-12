@@ -33,7 +33,7 @@ jobs:
       - name: Format and policy tests
         run: |
           set -euo pipefail
-          test -z "$(gofmt -l src/pc_os_voice_ku.go src/pc_os_voice_ku_test.go)"
+          test -z "$(gofmt -l src/pc_os_voice_ku.go src/pc_os_voice_ku_windows.go src/pc_os_voice_ku_test.go)"
           go test src/pc_os_voice_ku.go src/pc_os_voice_ku_test.go
       - name: Privacy and Zero-UI invariants
         run: |
@@ -58,6 +58,4 @@ jobs:
       - name: Windows voice module tests
         shell: pwsh
         run: |
-          $formatted = gofmt -l src/pc_os_voice_ku.go src/pc_os_voice_ku_windows.go src/pc_os_voice_ku_test.go
-          if ($formatted) { Write-Error "gofmt required: $formatted"; exit 1 }
           go test src/pc_os_voice_ku.go src/pc_os_voice_ku_windows.go src/pc_os_voice_ku_test.go
