@@ -61,6 +61,17 @@ func main() {
 	if transitionPubHex == nextTrustHex {
 		fatal("trust transition is invalid: transition signer and next trust anchor are identical")
 	}
+	if expected := strings.ToLower(strings.TrimSpace(os.Getenv("ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX"))); expected != "" {
+		if len(expected) != ed25519.PublicKeySize*2 {
+			fatal("ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX must contain exactly 64 hexadecimal characters")
+		}
+		if _, err := hex.DecodeString(expected); err != nil {
+			fatal("ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX is not valid hexadecimal")
+		}
+		if transitionPubHex != expected {
+			fatal("transition verifier public key does not match the v5.1.0 accepted production trust anchor")
+		}
+	}
 	if !strings.EqualFold(strings.TrimSpace(m.TransitionSigningPublicKeyHex), transitionPubHex) {
 		fatal("metadata transition-signing public key does not match marker")
 	}
