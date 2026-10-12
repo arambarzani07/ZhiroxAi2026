@@ -77,7 +77,7 @@ jobs:
           grep -q 'pc_os_core_recovery_status' buildsrc/main.go
           grep -q 'pc_os_core_recovery_set' buildsrc/main.go
           grep -q 'generic Zhirox Core restart is locked' buildsrc/main.go
-          grep -q '"zhiroxaicore": true' buildsrc/owner_actions.go
+          grep -Eq '"zhiroxaicore"[[:space:]]*:[[:space:]]*true' buildsrc/owner_actions.go
           grep -q 'ChangeServiceConfig2W' buildsrc/pc_os_recovery_v511_windows.go
           grep -q 'ENABLE_ZHIROX_CORE_SELF_HEALING' buildsrc/pc_os_recovery_v511_windows.go
           grep -q 'FailureActionsOnNonCrashFailures: 1' buildsrc/pc_os_recovery_v511_windows.go
