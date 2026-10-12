@@ -9,6 +9,7 @@ on:
       - feature/v511-secure-key-rotation
     paths:
       - '.github/workflows/build-v511.yml'
+      - 'release-gates/v5.1.1-next-public-key.hex'
       - 'src/pc_os_recovery_v511_windows.go'
       - 'tools/patch_v511.py'
       - 'tools/prepare_transition_trust_v511.go'
@@ -86,12 +87,14 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           ZHIROX_V510_TRANSITION_ED25519_SEED_B64: ${{ secrets.ZHIROX_V510_TRANSITION_ED25519_SEED_B64 }}
-          ZHIROX_V511_NEXT_ED25519_SEED_B64: ${{ secrets.ZHIROX_V511_NEXT_ED25519_SEED_B64 }}
           ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
         run: |
           set -euo pipefail
           test -n "$ZHIROX_V510_TRANSITION_ED25519_SEED_B64" || { echo 'Missing v5.1.0 transition signing secret; refusing release build.' >&2; exit 1; }
-          test -n "$ZHIROX_V511_NEXT_ED25519_SEED_B64" || { echo 'Missing v5.1.1 next trust secret; refusing release build.' >&2; exit 1; }
+          test -z "${ZHIROX_V511_NEXT_ED25519_SEED_B64:-}" || { echo 'Next private key is forbidden on main; refusing release build.' >&2; exit 1; }
+          test -s release-gates/v5.1.1-next-public-key.hex || { echo 'Missing KMS-derived v5.1.1 next public key gate; refusing release build.' >&2; exit 1; }
+          export ZHIROX_V511_NEXT_PUBLIC_KEY_HEX="$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex)"
+          [[ "$ZHIROX_V511_NEXT_PUBLIC_KEY_HEX" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo 'KMS-derived next public key must be exactly 64 hexadecimal characters.' >&2; exit 1; }
           go run tools/prepare_transition_trust_v511.go
           gofmt -w buildsrc/update_trust_v510.go
           test -s channel/update-public-key.hex
@@ -99,6 +102,7 @@ jobs:
           ! cmp -s channel/update-public-key.hex channel/transition-signing-public-key.hex
           ! grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
           grep -q "$ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX" channel/transition-signing-public-key.hex
+          grep -qi "$ZHIROX_V511_NEXT_PUBLIC_KEY_HEX" channel/update-public-key.hex
 
       - name: v5.1.1 safety and Zero-UI invariants
         run: |
