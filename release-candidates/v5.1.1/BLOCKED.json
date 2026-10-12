@@ -1,0 +1,8 @@
+{
+  "blocked": true,
+  "reason": "production v5.1.0 pins Ed25519 public key 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd, while this v5.1.1 candidate is signed by c66d7fdea4ec6b617d34f3a6fdf1ab485b64f93779cefcdd5b9695586bbacd1e",
+  "production_promotion_allowed": false,
+  "agent_rollout_allowed": false,
+  "safe_remediation": "rebuild/sign v5.1.1 with the existing production signing seed, or perform an explicitly designed trust rotation signed by the currently trusted production key",
+  "direct_file_replacement_allowed": false
+}
