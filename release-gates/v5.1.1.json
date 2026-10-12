@@ -1,0 +1,17 @@
+{
+  "version": "5.1.1",
+  "release_ready": false,
+  "production_promotion_approved": false,
+  "production_expected_agent_version": "5.1.0",
+  "production_expected_pinned_public_key_hex": "3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd",
+  "candidate_public_key_hex": "c66d7fdea4ec6b617d34f3a6fdf1ab485b64f93779cefcdd5b9695586bbacd1e",
+  "trust_anchor_compatible": false,
+  "agent_rollout_started": false,
+  "blocked_reason": "v5.1.1 candidate signing key does not match the Ed25519 trust anchor pinned by production v5.1.0",
+  "notes": [
+    "Fail closed: do not promote or serve v5.1.1 to production v5.1.0 while trust_anchor_compatible is false.",
+    "The production v5.1.0 updater verifies Ed25519 locally before staging a newer payload.",
+    "Correct remediation is to build/sign v5.1.1 with the existing production signing seed or perform an explicitly designed trust rotation signed by the existing trusted key.",
+    "Do not bypass the local signature gate with direct file replacement."
+  ]
+}
