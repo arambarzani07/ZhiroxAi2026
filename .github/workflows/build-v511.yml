@@ -10,6 +10,7 @@ on:
       - '.github/workflows/build-v511.yml'
       - 'src/pc_os_recovery_v511_windows.go'
       - 'tools/patch_v511.py'
+      - 'tools/prepare_transition_trust_v511.go'
       - 'tools/sign_metadata_v511.go'
       - 'tools/verify_metadata_v511.go'
       - 'src/pc_os_v510.go'
@@ -26,7 +27,6 @@ on:
       - 'tools/patch_v510.py'
       - 'tools/patch_trust_v510.py'
       - 'tools/patch_self_updater_v510.py'
-      - 'tools/prepare_trust_v510.go'
       - 'tools/patch_downloader_v503.py'
       - 'tools/patch_v505.py'
       - 'tools/patch_v506.py'
@@ -81,17 +81,23 @@ jobs:
           python3 tools/patch_v511.py
           gofmt -w buildsrc/*.go
 
-      - name: Prepare production pinned trust anchor
+      - name: Prepare production one-way trust transition
         if: github.ref == 'refs/heads/main'
         env:
-          ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+          ZHIROX_V510_TRANSITION_ED25519_SEED_B64: ${{ secrets.ZHIROX_V510_TRANSITION_ED25519_SEED_B64 }}
+          ZHIROX_V511_NEXT_ED25519_SEED_B64: ${{ secrets.ZHIROX_V511_NEXT_ED25519_SEED_B64 }}
+          ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
         run: |
           set -euo pipefail
-          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing production release build.' >&2; exit 1; }
-          go run tools/prepare_trust_v510.go
+          test -n "$ZHIROX_V510_TRANSITION_ED25519_SEED_B64" || { echo 'Missing v5.1.0 transition signing secret; refusing release build.' >&2; exit 1; }
+          test -n "$ZHIROX_V511_NEXT_ED25519_SEED_B64" || { echo 'Missing v5.1.1 next trust secret; refusing release build.' >&2; exit 1; }
+          go run tools/prepare_transition_trust_v511.go
           gofmt -w buildsrc/update_trust_v510.go
           test -s channel/update-public-key.hex
+          test -s channel/transition-signing-public-key.hex
+          ! cmp -s channel/update-public-key.hex channel/transition-signing-public-key.hex
           ! grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
+          grep -q "$ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX" channel/transition-signing-public-key.hex
 
       - name: v5.1.1 safety and Zero-UI invariants
         run: |
@@ -134,7 +140,7 @@ jobs:
           go vet ./...
           go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go update_trust_v510.go
 
-      - name: Ephemeral Ed25519 signing preflight
+      - name: Ephemeral two-key trust-transition preflight
         if: github.ref != 'refs/heads/main'
         run: |
           set -euo pipefail
@@ -142,12 +148,15 @@ jobs:
           trap 'rm -rf "$TMP"' EXIT
           cp -a buildsrc "$TMP/buildsrc"
           mkdir -p "$TMP/channel"
-          ZHIROX_UPDATE_ED25519_SEED_B64=$(head -c 32 /dev/urandom | base64 -w0)
-          export ZHIROX_UPDATE_ED25519_SEED_B64
+          export ZHIROX_V510_TRANSITION_ED25519_SEED_B64=$(head -c 32 /dev/urandom | base64 -w0)
+          export ZHIROX_V511_NEXT_ED25519_SEED_B64=$(head -c 32 /dev/urandom | base64 -w0)
           (
             cd "$TMP"
-            go run "$GITHUB_WORKSPACE/tools/prepare_trust_v510.go"
+            go run "$GITHUB_WORKSPACE/tools/prepare_transition_trust_v511.go"
             gofmt -w buildsrc/update_trust_v510.go
+            test -s channel/update-public-key.hex
+            test -s channel/transition-signing-public-key.hex
+            ! cmp -s channel/update-public-key.hex channel/transition-signing-public-key.hex
           )
           (
             cd "$TMP/buildsrc"
@@ -159,9 +168,12 @@ jobs:
             go run "$GITHUB_WORKSPACE/tools/verify_metadata_v511.go"
             grep -q '"algorithm":"Ed25519"' channel/metadata.json
             grep -q '"version":"5.1.1"' channel/metadata.json
+            grep -q '"from_version":"5.1.0"' channel/metadata.json
+            grep -q '"trust_transition":true' channel/metadata.json
             grep -Eq 'pcOSPinnedUpdatePublicKeyHex = "[0-9a-f]{64}"' buildsrc/update_trust_v510.go
           )
-          unset ZHIROX_UPDATE_ED25519_SEED_B64
+          unset ZHIROX_V510_TRANSITION_ED25519_SEED_B64
+          unset ZHIROX_V511_NEXT_ED25519_SEED_B64
 
       - name: Fail-closed branch metadata
         if: github.ref != 'refs/heads/main'
@@ -169,23 +181,27 @@ jobs:
           set -euo pipefail
           grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
           test ! -e channel/update-public-key.hex
+          test ! -e channel/transition-signing-public-key.hex
           SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
           SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
-          printf '{"version":"5.1.1","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"rollback_updater_embedded":true,"self_healing":true,"publishable":false,"notes":"feature build only; production signing remains main-only and fail-closed"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          printf '{"version":"5.1.1","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"rollback_updater_embedded":true,"self_healing":true,"publishable":false,"notes":"feature build only; production transition signing remains main-only and fail-closed"}\n' "$SHA" "$SIZE" > channel/metadata.json
           sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
 
-      - name: Sign production candidate metadata
+      - name: Sign production transition candidate metadata
         if: github.ref == 'refs/heads/main'
         env:
-          ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+          ZHIROX_V510_TRANSITION_ED25519_SEED_B64: ${{ secrets.ZHIROX_V510_TRANSITION_ED25519_SEED_B64 }}
+          ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
         run: |
           set -euo pipefail
-          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release.' >&2; exit 1; }
+          test -n "$ZHIROX_V510_TRANSITION_ED25519_SEED_B64" || { echo 'Missing transition signing secret; refusing release.' >&2; exit 1; }
           go run tools/sign_metadata_v511.go
           go run tools/verify_metadata_v511.go
           grep -q '"algorithm":"Ed25519"' channel/metadata.json
           grep -q '"version":"5.1.1"' channel/metadata.json
-          test -s channel/update-public-key.hex
+          grep -q '"trust_transition":true' channel/metadata.json
+          grep -q "$ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX" channel/transition-signing-public-key.hex
+          ! cmp -s channel/update-public-key.hex channel/transition-signing-public-key.hex
 
       - name: Upload verification artifact
         uses: actions/upload-artifact@v4
@@ -196,6 +212,7 @@ jobs:
             channel/ZhiroxAISupervisor.exe.sha256
             channel/metadata.json
             channel/update-public-key.hex
+            channel/transition-signing-public-key.hex
           if-no-files-found: error
 
   stage-candidate:
@@ -228,6 +245,7 @@ jobs:
           cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe.sha256"
           cp candidate-input/metadata.json "$VERIFY_ROOT/channel/metadata.json"
           cp candidate-input/update-public-key.hex "$VERIFY_ROOT/channel/update-public-key.hex"
+          cp candidate-input/transition-signing-public-key.hex "$VERIFY_ROOT/channel/transition-signing-public-key.hex"
           (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v511.go")
 
           CANDIDATE_DIR='release-candidates/v5.1.1'
@@ -237,7 +255,8 @@ jobs:
           cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$CANDIDATE_DIR/ZhiroxAISupervisor.exe.sha256"
           cp candidate-input/metadata.json "$CANDIDATE_DIR/metadata.json"
           cp candidate-input/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
-          printf '{"version":"5.1.1","source_commit":"%s","workflow_run_id":"%s","signed":true,"production_promoted":false,"promotion_requires_explicit_cutover":true,"agent_rollout_started":false}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
+          cp candidate-input/transition-signing-public-key.hex "$CANDIDATE_DIR/transition-signing-public-key.hex"
+          printf '{"version":"5.1.1","source_commit":"%s","workflow_run_id":"%s","signed":true,"trust_transition":true,"production_promoted":false,"promotion_requires_explicit_cutover":true,"agent_rollout_started":false}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -247,6 +266,6 @@ jobs:
             exit 1
           fi
           if ! git diff --cached --quiet; then
-            git commit -m 'Stage signed Zhirox PC OS v5.1.1 candidate [skip ci]'
+            git commit -m 'Stage signed Zhirox PC OS v5.1.1 transition candidate [skip ci]'
             git push
           fi
