@@ -10,6 +10,8 @@ import (
     "strings"
 )
 
+const productionV51PinnedPublicKeyHex = "3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd"
+
 func main() {
     seedB64 := strings.TrimSpace(os.Getenv("ZHIROX_UPDATE_ED25519_SEED_B64"))
     if seedB64 == "" {
@@ -23,6 +25,14 @@ func main() {
     privateKey := ed25519.NewKeyFromSeed(seed)
     publicKey := privateKey.Public().(ed25519.PublicKey)
     publicHex := hex.EncodeToString(publicKey)
+
+    // v5.1.x production updates must preserve the trust anchor already pinned in
+    // the deployed v5.1.0 Supervisor. Feature/ephemeral builds remain free to use
+    // temporary keys, but a main-branch production build fails closed on key drift.
+    enforceProductionContinuity := strings.EqualFold(strings.TrimSpace(os.Getenv("GITHUB_REF")), "refs/heads/main") || strings.TrimSpace(os.Getenv("ZHIROX_ENFORCE_PRODUCTION_TRUST_CONTINUITY")) == "1"
+    if enforceProductionContinuity && !strings.EqualFold(publicHex, productionV51PinnedPublicKeyHex) {
+        fatal("production Ed25519 trust continuity mismatch: signing seed does not match the public key pinned in deployed v5.1.0")
+    }
 
     if err := os.MkdirAll("buildsrc", 0755); err != nil {
         fatal(err.Error())
