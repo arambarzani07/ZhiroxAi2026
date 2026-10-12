@@ -1,0 +1,61 @@
+name: Validate Zhirox Kurdish Voice v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/kurdish-voice-v1
+    paths:
+      - 'src/pc_os_voice_ku.go'
+      - 'src/pc_os_voice_ku_windows.go'
+      - 'src/pc_os_voice_ku_test.go'
+      - 'docs/KURDISH_VOICE_V1.md'
+      - '.github/workflows/validate-kurdish-voice-v1.yml'
+  pull_request:
+    paths:
+      - 'src/pc_os_voice_ku.go'
+      - 'src/pc_os_voice_ku_windows.go'
+      - 'src/pc_os_voice_ku_test.go'
+      - 'docs/KURDISH_VOICE_V1.md'
+      - '.github/workflows/validate-kurdish-voice-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  policy-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Format and policy tests
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l src/pc_os_voice_ku.go src/pc_os_voice_ku_windows.go src/pc_os_voice_ku_test.go)"
+          go test src/pc_os_voice_ku.go src/pc_os_voice_ku_test.go
+      - name: Privacy and Zero-UI invariants
+        run: |
+          set -euo pipefail
+          grep -q '"microphone_enabled":.*false' src/pc_os_voice_ku.go
+          grep -q '"continuous_listening":.*false' src/pc_os_voice_ku.go
+          grep -q '"network_required":.*false' src/pc_os_voice_ku.go
+          grep -q '"shell_allowed":.*false' src/pc_os_voice_ku.go
+          grep -q '"free_form_tts_enabled":.*false' src/pc_os_voice_ku.go
+          if grep -Eqi 'os/exec|exec\.Command|cmd\.exe|powershell\.exe|net/http|waveIn|SpeechRecognition' src/pc_os_voice_ku.go src/pc_os_voice_ku_windows.go; then
+            echo 'Kurdish Voice v1 invariant failed: shell/network/microphone path detected.' >&2
+            exit 1
+          fi
+
+  windows-compile:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Windows voice module tests
+        shell: pwsh
+        run: |
+          go test src/pc_os_voice_ku.go src/pc_os_voice_ku_windows.go src/pc_os_voice_ku_test.go
