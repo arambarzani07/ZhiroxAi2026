@@ -236,6 +236,8 @@ jobs:
           go-version: '1.23.x'
 
       - name: Re-verify and stage signed candidate without production promotion
+        env:
+          ZHIROX_V510_ACCEPTED_PUBLIC_KEY_HEX: 3cdf94418d5a43734c49238268ed7512481c97faa691a0cd053eb9f74fbe10bd
         run: |
           set -euo pipefail
           VERIFY_ROOT=$(mktemp -d)
