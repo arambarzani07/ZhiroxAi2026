@@ -13,14 +13,14 @@ import (
 const pcOSKurdishVoiceAssetRoot = `C:\ProgramData\ZhiroxAI\voice\ku`
 
 const (
-	pcOSSNDAsync    = 0x0001
+	pcOSSNDAsync     = 0x0001
 	pcOSSNDNoDefault = 0x0002
-	pcOSSNDFilename = 0x00020000
+	pcOSSNDFilename  = 0x00020000
 )
 
 var (
-	pcOSWinMM       = syscall.NewLazyDLL("winmm.dll")
-	pcOSPlaySoundW  = pcOSWinMM.NewProc("PlaySoundW")
+	pcOSWinMM      = syscall.NewLazyDLL("winmm.dll")
+	pcOSPlaySoundW = pcOSWinMM.NewProc("PlaySoundW")
 )
 
 func pcOSPlayKurdishVoiceEvent(event string) error {
