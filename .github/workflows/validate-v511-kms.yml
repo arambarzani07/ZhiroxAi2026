@@ -1,0 +1,64 @@
+name: Validate Zhirox v5.1.1 KMS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/v511-secure-key-rotation
+      - main
+    paths:
+      - '.github/workflows/validate-v511-kms.yml'
+      - 'ops/supabase/zhirox_v511_next_ed25519_kms.sql'
+  pull_request:
+    paths:
+      - '.github/workflows/validate-v511-kms.yml'
+      - 'ops/supabase/zhirox_v511_next_ed25519_kms.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  kms-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Static KMS safety invariants
+        run: |
+          set -euo pipefail
+          F='ops/supabase/zhirox_v511_next_ed25519_kms.sql'
+          test -s "$F"
+
+          grep -q 'create extension if not exists pgsodium' "$F"
+          grep -q 'create schema if not exists zhirox_kms' "$F"
+          grep -q 'pgsodium.crypto_sign_new_keypair' "$F"
+          grep -q "raw_key => (kp).secret" "$F"
+          grep -q 'pgsodium.create_key' "$F"
+          grep -q 'security definer' "$F"
+          grep -q 'grant execute on function zhirox_kms.init_v511_next_signing_key() to service_role' "$F"
+          grep -q 'grant execute on function zhirox_kms.get_v511_next_public_key() to service_role' "$F"
+
+          # The KMS bootstrap must never read or export an existing decrypted
+          # Vault secret. It generates its Ed25519 keypair internally.
+          if grep -Eqi 'vault\.decrypted_secrets|decrypted_secret' "$F"; then
+            echo 'KMS safety failure: decrypted Vault secret access is forbidden.' >&2
+            exit 1
+          fi
+
+          # No general signing oracle is allowed in the bootstrap migration.
+          if grep -Eqi 'crypto_sign_detached|crypto_sign\(' "$F"; then
+            echo 'KMS safety failure: bootstrap must not expose a signing oracle.' >&2
+            exit 1
+          fi
+
+          # No positive grant may target browser/user roles.
+          if grep -Eqi '^grant[[:space:]].*[[:space:]]to[[:space:]]+(anon|authenticated)([[:space:]]|;|$)' "$F"; then
+            echo 'KMS safety failure: anon/authenticated grant found.' >&2
+            exit 1
+          fi
+
+          # Direct table access remains denied even to service_role; access is
+          # intentionally mediated through SECURITY DEFINER functions.
+          grep -q 'revoke all on table zhirox_kms.ed25519_key_metadata from service_role' "$F"
+
+          echo 'v5.1.1 KMS static safety invariants: PASS'
