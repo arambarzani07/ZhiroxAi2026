@@ -1,0 +1,56 @@
+name: Audit Zhirox v5.1.1 production trust anchor
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'release-gates/v5.1.1.json'
+      - 'release-candidates/v5.1.1/update-public-key.hex'
+      - '.github/workflows/audit-v511-trust-anchor.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'release-gates/v5.1.1.json'
+      - 'release-candidates/v5.1.1/update-public-key.hex'
+      - '.github/workflows/audit-v511-trust-anchor.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  trust-anchor-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce fail-closed production trust state
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          gate = json.loads(Path('release-gates/v5.1.1.json').read_text())
+          expected = gate['production_expected_pinned_public_key_hex'].strip().lower()
+          candidate = Path('release-candidates/v5.1.1/update-public-key.hex').read_text().strip().lower()
+          recorded = gate['candidate_public_key_hex'].strip().lower()
+
+          if candidate != recorded:
+              raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: recorded candidate key does not match staged candidate')
+
+          compatible = candidate == expected
+          if compatible:
+              if gate.get('trust_anchor_compatible') is not True:
+                  raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: compatible key is not marked compatible')
+              print('TRUST_ANCHOR_AUDIT=COMPATIBLE')
+          else:
+              if gate.get('trust_anchor_compatible') is not False:
+                  raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: key mismatch must be fail-closed')
+              if gate.get('production_promotion_approved') is True:
+                  raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: promotion cannot be approved with key mismatch')
+              if gate.get('agent_rollout_started') is True:
+                  raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: rollout cannot start with key mismatch')
+              if not gate.get('blocked_reason'):
+                  raise SystemExit('TRUST_ANCHOR_AUDIT=FAIL: mismatch requires durable blocked_reason')
+              print('TRUST_ANCHOR_AUDIT=BLOCKED_AS_DESIGNED')
+          PY
