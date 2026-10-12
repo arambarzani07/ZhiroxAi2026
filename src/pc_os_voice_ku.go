@@ -57,18 +57,18 @@ var pcOSKurdishVoiceEntries = map[string]pcOSKurdishVoiceEntry{
 
 func pcOSKurdishVoicePolicy() map[string]interface{} {
 	return map[string]interface{}{
-		"module":                  "kurdish_voice",
-		"locale":                  pcOSKurdishVoiceLocale,
-		"provider":                pcOSKurdishVoiceProvider,
-		"default_enabled":         pcOSKurdishVoiceDefaultEnabled,
-		"zero_ui":                 true,
-		"microphone_enabled":      false,
-		"continuous_listening":    false,
-		"network_required":        false,
-		"shell_allowed":           false,
-		"free_form_tts_enabled":   false,
+		"module":                   "kurdish_voice",
+		"locale":                   pcOSKurdishVoiceLocale,
+		"provider":                 pcOSKurdishVoiceProvider,
+		"default_enabled":          pcOSKurdishVoiceDefaultEnabled,
+		"zero_ui":                  true,
+		"microphone_enabled":       false,
+		"continuous_listening":     false,
+		"network_required":         false,
+		"shell_allowed":            false,
+		"free_form_tts_enabled":    false,
 		"event_allowlist_required": true,
-		"asset_root_mutable":      false,
+		"asset_root_mutable":       false,
 	}
 }
 
