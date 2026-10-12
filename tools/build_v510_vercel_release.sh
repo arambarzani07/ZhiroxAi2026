@@ -10,6 +10,10 @@ if len(raw) != 32:
     raise SystemExit('Signing seed must decode to exactly 32 bytes')
 PY
 
+# Standalone production builds must preserve the same Ed25519 trust anchor that
+# is already pinned in deployed v5.1.0. Feature/ephemeral CI paths do not set this.
+export ZHIROX_ENFORCE_PRODUCTION_TRUST_CONTINUITY=1
+
 rm -rf buildsrc channel release-out
 mkdir -p buildsrc channel release-out
 cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
@@ -64,5 +68,7 @@ cp channel/metadata.json release-out/metadata.json
 cp channel/update-public-key.hex release-out/update-public-key.hex
 printf '%s\n' '{"service":"Zhirox protected v5.1 relay artifact","status":"staged","production_cutover":false}' > release-out/index.json
 
-# Never emit the signing seed. Remove it from this process environment before any later shell step.
+# Never emit the signing seed. Remove release-only trust controls from this
+# process environment before any later shell step.
 unset ZHIROX_UPDATE_ED25519_SEED_B64
+unset ZHIROX_ENFORCE_PRODUCTION_TRUST_CONTINUITY
