@@ -132,6 +132,37 @@ def replace_go_func(src: str, name: str, replacement: str) -> str:
     raise SystemExit(f'{name} closing brace not found')
 
 
+# Zero-UI hardening: make the Windows process flags a single mandatory policy
+# point and make both command constructors route through it. This prevents a
+# future refactor of the legacy helper bodies from accidentally reintroducing a
+# visible console window. pcOSApplyZeroUI lives in pc_os_windows_v510.go and
+# applies HideWindow + CREATE_NO_WINDOW while preserving existing flags.
+zero_ui_background = r'''func applyBackgroundFlags(cmd *exec.Cmd) {
+\tpcOSApplyZeroUI(cmd)
+}'''.replace('\\t', '\t')
+zero_ui_hidden = r'''func hiddenCommand(name string, args ...string) *exec.Cmd {
+\tcmd := exec.Command(name, args...)
+\tapplyBackgroundFlags(cmd)
+\treturn cmd
+}'''.replace('\\t', '\t')
+zero_ui_hidden_context = r'''func hiddenCommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+\tcmd := exec.CommandContext(ctx, name, args...)
+\tapplyBackgroundFlags(cmd)
+\treturn cmd
+}'''.replace('\\t', '\t')
+text = replace_go_func(text, 'applyBackgroundFlags', zero_ui_background)
+text = replace_go_func(text, 'hiddenCommand', zero_ui_hidden)
+text = replace_go_func(text, 'hiddenCommandContext', zero_ui_hidden_context)
+
+for invariant in (
+    'pcOSApplyZeroUI(cmd)',
+    'cmd := exec.Command(name, args...)',
+    'cmd := exec.CommandContext(ctx, name, args...)',
+):
+    if invariant not in text:
+        raise SystemExit(f'Zero-UI hardening invariant missing after patch: {invariant}')
+
+
 signed_check = r'''func checkForUpdate() error {
 \tif !cfg.AutoUpdate {
 \t\treturn nil
