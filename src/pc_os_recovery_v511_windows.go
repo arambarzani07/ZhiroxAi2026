@@ -19,8 +19,10 @@ const (
 	pcOSServiceConfigFailure  = 2
 	pcOSServiceConfigFailFlag = 4
 
-	pcOSSCActionNone    = 0
-	pcOSSCActionRestart = 1
+	pcOSSCActionNone       = 0
+	pcOSSCActionRestart    = 1
+	pcOSSCActionReboot     = 2
+	pcOSSCActionRunCommand = 3
 )
 
 type pcOSSCAction struct {
@@ -41,13 +43,21 @@ type pcOSServiceFailureActionsFlag struct {
 }
 
 var (
-	pcOSAdvapi32                    = syscall.NewLazyDLL("advapi32.dll")
-	pcOSOpenSCManagerW              = pcOSAdvapi32.NewProc("OpenSCManagerW")
-	pcOSOpenServiceW                = pcOSAdvapi32.NewProc("OpenServiceW")
-	pcOSCloseServiceHandle          = pcOSAdvapi32.NewProc("CloseServiceHandle")
-	pcOSChangeServiceConfig2W       = pcOSAdvapi32.NewProc("ChangeServiceConfig2W")
-	pcOSQueryServiceConfig2W        = pcOSAdvapi32.NewProc("QueryServiceConfig2W")
+	pcOSAdvapi32                   = syscall.NewLazyDLL("advapi32.dll")
+	pcOSOpenSCManagerW             = pcOSAdvapi32.NewProc("OpenSCManagerW")
+	pcOSOpenServiceW               = pcOSAdvapi32.NewProc("OpenServiceW")
+	pcOSCloseServiceHandle         = pcOSAdvapi32.NewProc("CloseServiceHandle")
+	pcOSChangeServiceConfig2W      = pcOSAdvapi32.NewProc("ChangeServiceConfig2W")
+	pcOSQueryServiceConfig2W       = pcOSAdvapi32.NewProc("QueryServiceConfig2W")
 )
+
+func pcOSIsCoreServiceTarget(name string) bool {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "-", "")
+	s = strings.ReplaceAll(s, "_", "")
+	return s == "zhiroxaicore" || s == "zhiroxcoreservice" || s == "zhiroxaicoreservice"
+}
 
 func pcOSWinAPIError(op string, callErr error) error {
 	if errno, ok := callErr.(syscall.Errno); ok && errno != 0 {
@@ -114,6 +124,10 @@ func pcOSRecoveryActionName(t uint32) string {
 	switch t {
 	case pcOSSCActionRestart:
 		return "restart"
+	case pcOSSCActionReboot:
+		return "reboot"
+	case pcOSSCActionRunCommand:
+		return "run_command"
 	case pcOSSCActionNone:
 		return "none"
 	default:
@@ -134,8 +148,16 @@ func pcOSCoreRecoveryStatus() (interface{}, error) {
 	}
 	cfg := (*pcOSServiceFailureActions)(unsafe.Pointer(&failureBuf[0]))
 	actions := make([]map[string]interface{}, 0, int(cfg.ActionsCount))
+	rebootConfigured := false
+	commandConfigured := cfg.Command != nil
 	if cfg.Actions != nil && cfg.ActionsCount > 0 && cfg.ActionsCount <= 32 {
 		for _, action := range unsafe.Slice(cfg.Actions, int(cfg.ActionsCount)) {
+			if action.Type == pcOSSCActionReboot {
+				rebootConfigured = true
+			}
+			if action.Type == pcOSSCActionRunCommand {
+				commandConfigured = true
+			}
 			actions = append(actions, map[string]interface{}{
 				"action":   pcOSRecoveryActionName(action.Type),
 				"delay_ms": action.Delay,
@@ -150,16 +172,16 @@ func pcOSCoreRecoveryStatus() (interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"module":                       "core_self_healing",
-		"service":                      pcOSCoreServiceName,
-		"reset_period_seconds":         cfg.ResetPeriod,
-		"actions":                      actions,
-		"failure_actions_non_crash":    nonCrash,
-		"reboot_action_configured":     false,
-		"external_command_configured":  false,
-		"windows_reboot_allowed":       false,
-		"zero_ui":                      true,
-		"generic_core_restart_locked":  true,
+		"module":                      "core_self_healing",
+		"service":                     pcOSCoreServiceName,
+		"reset_period_seconds":        cfg.ResetPeriod,
+		"actions":                     actions,
+		"failure_actions_non_crash":   nonCrash,
+		"reboot_action_configured":    rebootConfigured,
+		"external_command_configured": commandConfigured,
+		"windows_reboot_allowed":      false,
+		"zero_ui":                     true,
+		"generic_core_restart_locked": true,
 	}, nil
 }
 
