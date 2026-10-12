@@ -1,0 +1,163 @@
+name: Required Zhirox v5.1 safety gates
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/required-safety-v510.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  required-build-safety:
+    name: required-build-safety
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Unit and policy tests
+        run: |
+          set -euo pipefail
+          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_backup_policy_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go src/pc_os_backup_policy_v510_test.go
+          deno check ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'pc_os_min_agent:"5.1.0"' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'MUTATION_ACTIONS' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'approval_required' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -qi 'security invoker' ops/supabase/pc_relay_approval_gate.sql
+          if grep -qi 'security definer' ops/supabase/pc_relay_approval_gate.sql; then
+            echo 'Approval RPC must not use SECURITY DEFINER.' >&2
+            exit 1
+          fi
+
+      - name: Restore and harden Supervisor source
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python3 tools/patch_v510.py
+          python3 tools/patch_trust_v510.py
+          python3 tools/patch_self_updater_v510.py
+          gofmt -w buildsrc/*.go
+
+      - name: Critical security invariants
+        run: |
+          set -euo pipefail
+          grep -q '5.1.0' buildsrc/main.go
+          grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
+          grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
+          grep -q 'operation != "start"' buildsrc/owner_actions.go
+          grep -qi 'database' buildsrc/owner_actions.go
+          grep -q 'pcOSVerifySignedUpdatePayload' buildsrc/main.go
+          grep -q 'signed manifest requires size and Ed25519 signature' buildsrc/main.go
+          grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
+          grep -q 'ZhiroxAISupervisor.exe.pre-vrollback-' buildsrc/pc_os_self_updater_v510_windows.go
+          grep -q 'D:\\ZhiroxBackups' buildsrc/pc_os_backup_policy_v510.go
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ('pc_os_self_updater_v510_windows.go', 'pc_os_backup_v510_windows.go'):
+              text = Path('buildsrc', name).read_text(errors='ignore')
+              if re.search(r'(?i)["\x27](?:cmd|powershell)\.exe["\x27]', text):
+                  raise SystemExit(f'Zero-UI invariant failed: literal shell executable found in {name}')
+          PY
+
+      - name: Windows cross-compile
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
+
+      - name: Ephemeral Ed25519 release preflight
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          cp -a buildsrc "$TMP/buildsrc"
+          mkdir -p "$TMP/channel"
+          export ZHIROX_UPDATE_ED25519_SEED_B64=$(head -c 32 /dev/urandom | base64 -w0)
+          (
+            cd "$TMP"
+            go run "$GITHUB_WORKSPACE/tools/prepare_trust_v510.go"
+            gofmt -w buildsrc/update_trust_v510.go
+          )
+          (
+            cd "$TMP/buildsrc"
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
+          )
+          (
+            cd "$TMP"
+            go run "$GITHUB_WORKSPACE/tools/sign_metadata_v510.go"
+            go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go"
+          )
+          unset ZHIROX_UPDATE_ED25519_SEED_B64
+
+  required-updater-integration:
+    name: required-updater-integration
+    runs-on: windows-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Real Windows rollback and health-gate tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -tags zhiroxtest -v `
+            src/pc_os_self_updater_v510_windows.go `
+            src/pc_os_self_updater_v510_windows_teststub.go `
+            src/pc_os_self_updater_v510_windows_test.go `
+            -run '^TestPCOSUpdater' -count=1 -timeout 5m
+
+      - name: Confirm production timing and Zero-UI contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $text = Get-Content src/pc_os_self_updater_v510_windows.go -Raw
+          if ($text -notmatch 'time\.NewTimer\(90 \* time\.Second\)') { throw '90-second health gate missing' }
+          if ($text -notmatch 'time\.NewTicker\(2 \* time\.Second\)') { throw '2-second health polling missing' }
+          if ($text -notmatch 'HideWindow: true') { throw 'HideWindow Zero-UI flag missing' }
+          if ($text -notmatch 'CreationFlags: pcOSNoWindowCreationFlag') { throw 'CREATE_NO_WINDOW flag missing' }
+          if ($text -notmatch 'ZhiroxAISupervisor\.exe\.pre-vrollback-') { throw 'rollback backup contract missing' }

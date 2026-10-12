@@ -1,0 +1,44 @@
+name: Validate v5.1 SQL backup relay routes
+
+on:
+  push:
+    branches:
+      - feature/pc-os-v510
+      - main
+    paths:
+      - 'ops/supabase/zhirox-pc-relay-v15.ts'
+      - '.github/workflows/validate-backup-routes-v510.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check and enforce route classification
+        run: |
+          set -euo pipefail
+          deno check ops/supabase/zhirox-pc-relay-v15.ts
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('ops/supabase/zhirox-pc-relay-v15.ts').read_text()
+          read_start = s.index('const PC_OS_READ_ACTIONS=new Set([')
+          read_end = s.index(']);', read_start)
+          read_block = s[read_start:read_end]
+          mut_start = s.index('const MUTATION_ACTIONS=new Set([')
+          mut_end = s.index(']);', mut_start)
+          mut_block = s[mut_start:mut_end]
+
+          assert '"pc_os_backup_readiness"' in read_block
+          assert '"pc_os_backup_verify"' in read_block
+          assert '"pc_os_backup_execute"' not in read_block
+          assert '"pc_os_backup_execute"' in mut_block
+          assert 'approval_required' in s
+          assert '.rpc("enqueue_approved_pc_relay_command"' in s
+          print('backup relay routing is approval-safe')
+          PY

@@ -1,0 +1,45 @@
+name: Check Zhirox v5.1 signing readiness
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/signing-readiness-v510.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  signing-readiness:
+    runs-on: ubuntu-latest
+    env:
+      ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+    steps:
+      - name: Validate signing secret without disclosure
+        shell: python
+        run: |
+          import base64
+          import os
+          import sys
+
+          value = os.environ.get('ZHIROX_UPDATE_ED25519_SEED_B64', '').strip()
+          if not value:
+              print('SIGNING_READINESS=BLOCKED: required GitHub Actions secret is missing')
+              sys.exit(2)
+
+          try:
+              raw = base64.b64decode(value, validate=True)
+          except Exception:
+              print('SIGNING_READINESS=BLOCKED: secret is not valid strict base64')
+              sys.exit(3)
+
+          if len(raw) != 32:
+              print('SIGNING_READINESS=BLOCKED: decoded Ed25519 seed must be exactly 32 bytes')
+              sys.exit(4)
+
+          print('SIGNING_READINESS=READY: secret exists and has valid Ed25519 seed shape')
+
+# Touching this workflow on the feature branch intentionally triggers a
+# non-disclosing signing-readiness check. No secret value is ever printed.

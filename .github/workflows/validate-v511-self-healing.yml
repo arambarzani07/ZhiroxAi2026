@@ -1,0 +1,119 @@
+name: Validate Zhirox PC OS v5.1.1 Self-Healing
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/validate-v511-self-healing.yml'
+      - 'src/pc_os_recovery_v511_windows.go'
+      - 'tools/patch_v511.py'
+      - 'src/pc_os_v510.go'
+      - 'src/pc_os_cloud_v510.go'
+      - 'src/pc_os_windows_v510.go'
+      - 'src/pc_os_backup_policy_v510.go'
+      - 'src/pc_os_backup_v510_windows.go'
+      - 'src/pc_os_update_enforce_v510.go'
+      - 'src/pc_os_self_updater_v510_windows.go'
+      - 'src/update_trust_v510.go'
+      - 'tools/patch_v510.py'
+      - 'tools/patch_trust_v510.py'
+      - 'tools/patch_self_updater_v510.py'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Restore hardened legacy source
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+
+      - name: Apply production hardening chain through v5.1.0
+        run: |
+          set -euo pipefail
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python3 tools/patch_v510.py
+          python3 tools/patch_trust_v510.py
+          python3 tools/patch_self_updater_v510.py
+
+      - name: Apply v5.1.1 self-healing hardening
+        run: |
+          set -euo pipefail
+          cp src/pc_os_recovery_v511_windows.go buildsrc/pc_os_recovery_v511_windows.go
+          python3 tools/patch_v511.py
+          gofmt -w buildsrc/*.go
+
+      - name: Self-healing safety invariants
+        run: |
+          set -euo pipefail
+          grep -q '5.1.1' buildsrc/main.go
+          grep -q 'const pcOSVersion = "5.1.1"' buildsrc/pc_os_v510.go
+          grep -q 'pc_os_core_recovery_status' buildsrc/main.go
+          grep -q 'pc_os_core_recovery_set' buildsrc/main.go
+          grep -q 'generic Zhirox Core restart is locked' buildsrc/main.go
+          grep -Eq '"zhiroxaicore"[[:space:]]*:[[:space:]]*true' buildsrc/owner_actions.go
+          grep -q 'ChangeServiceConfig2W' buildsrc/pc_os_recovery_v511_windows.go
+          grep -q 'ENABLE_ZHIROX_CORE_SELF_HEALING' buildsrc/pc_os_recovery_v511_windows.go
+          grep -q 'FailureActionsOnNonCrashFailures: 1' buildsrc/pc_os_recovery_v511_windows.go
+          if grep -Eqi 'cmd\.exe|powershell\.exe|exec\.Command\(' buildsrc/pc_os_recovery_v511_windows.go; then
+            echo 'Zero-UI invariant failed: recovery controller must not launch a shell.' >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('buildsrc/pc_os_recovery_v511_windows.go').read_text()
+          start=s.index('func pcOSSetCoreRecovery')
+          block=s[start:]
+          for delay in ('10_000', '30_000', '60_000'):
+              assert re.search(r'\{Type:\s*pcOSSCActionRestart,\s*Delay:\s*' + delay + r'\}', block), delay
+          assert re.search(r'\{Type:\s*pcOSSCActionNone,\s*Delay:\s*0\}', block)
+          assert re.search(r'RebootMsg:\s*nil', block)
+          assert re.search(r'Command:\s*nil', block)
+          # Setter must never configure SCM reboot/run-command actions.
+          assert 'Type: pcOSSCActionReboot' not in block
+          assert 'Type: pcOSSCActionRunCommand' not in block
+          PY
+
+      - name: Windows compile and vet
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor-v5.1.1.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go update_trust_v510.go
+
+      - name: Artifact sanity
+        run: |
+          set -euo pipefail
+          test -s channel/ZhiroxAISupervisor-v5.1.1.exe
+          sha256sum channel/ZhiroxAISupervisor-v5.1.1.exe

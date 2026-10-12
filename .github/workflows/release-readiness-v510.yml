@@ -1,0 +1,100 @@
+name: Check Zhirox v5.1 release readiness
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/pc-os-v510
+      - main
+    paths:
+      - '.github/workflows/release-readiness-v510.yml'
+      - '.github/workflows/build-v510.yml'
+      - '.github/workflows/windows-updater-test-v510.yml'
+      - 'release-gates/v5.1.0.json'
+      - 'ops/supabase/zhirox-pc-relay-v15.ts'
+
+permissions:
+  contents: read
+
+jobs:
+  release-readiness:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Evaluate all release blockers
+        run: |
+          set -u
+          blocked=0
+
+          echo '--- Bootstrap rollback gate ---'
+          if python3 - <<'PY'
+          import json
+          from pathlib import Path
+          gate=json.loads(Path('release-gates/v5.1.0.json').read_text())
+          if gate.get('version')!='5.1.0':
+              raise SystemExit('RELEASE_READINESS=BLOCKED: gate version mismatch')
+          if gate.get('production_expected_agent_version')!='5.0.8' or gate.get('production_expected_channel_version')!='5.0.8':
+              raise SystemExit('RELEASE_READINESS=BLOCKED: production pin record mismatch')
+          if gate.get('bootstrap_rollback_proven') is not True:
+              raise SystemExit('RELEASE_READINESS=BLOCKED: 5.0.8 -> 5.1.0 bootstrap rollback is not proven')
+          evidence=gate.get('bootstrap_rollback_evidence') or []
+          if not evidence:
+              raise SystemExit('RELEASE_READINESS=BLOCKED: bootstrap rollback evidence is missing')
+          print('BOOTSTRAP_ROLLBACK=PROVEN')
+          PY
+          then :; else blocked=1; fi
+
+          echo '--- Signing secret gate ---'
+          if python3 - <<'PY'
+          import base64, os
+          value=os.environ.get('ZHIROX_UPDATE_ED25519_SEED_B64','').strip()
+          if not value:
+              raise SystemExit('RELEASE_READINESS=BLOCKED: signing secret is missing')
+          try:
+              raw=base64.b64decode(value, validate=True)
+          except Exception:
+              raise SystemExit('RELEASE_READINESS=BLOCKED: signing secret is not strict base64')
+          if len(raw)!=32:
+              raise SystemExit('RELEASE_READINESS=BLOCKED: decoded Ed25519 seed must be exactly 32 bytes')
+          print('SIGNING_SECRET_SHAPE=VALID')
+          PY
+          then :; else blocked=1; fi
+
+          echo '--- Main branch protection gate ---'
+          protected=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protected' 2>/dev/null || echo false)
+          if [ "$protected" != "true" ]; then
+            echo 'RELEASE_READINESS=BLOCKED: main branch is not protected' >&2
+            blocked=1
+          else
+            enforcement=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protection.required_status_checks.enforcement_level // "off"' 2>/dev/null || echo off)
+            if [ "$enforcement" = "off" ]; then
+              echo 'RELEASE_READINESS=BLOCKED: required status checks are not enforced on main' >&2
+              blocked=1
+            else
+              echo "MAIN_REQUIRED_STATUS_CHECKS=$enforcement"
+            fi
+          fi
+
+          echo '--- Production pin gate ---'
+          if ! grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v15.ts; then
+            echo 'RELEASE_READINESS=BLOCKED: candidate relay no longer pins production update manifest to 5.0.8' >&2
+            blocked=1
+          else
+            echo 'PRODUCTION_CHANNEL_PIN=5.0.8'
+          fi
+          if grep -q '"production_promotion_approved"[[:space:]]*:[[:space:]]*true' release-gates/v5.1.0.json; then
+            echo 'RELEASE_READINESS=BLOCKED: production promotion must remain a separate explicit cutover' >&2
+            blocked=1
+          fi
+
+          if [ "$blocked" -ne 0 ]; then
+            echo 'RELEASE_READINESS=BLOCKED' >&2
+            exit 1
+          fi
+          echo 'RELEASE_READINESS=READY'

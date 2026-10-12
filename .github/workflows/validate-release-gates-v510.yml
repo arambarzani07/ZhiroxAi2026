@@ -1,0 +1,66 @@
+name: Validate Zhirox v5.1 release gates
+
+on:
+  push:
+    branches:
+      - main
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/validate-release-gates-v510.yml'
+      - '.github/workflows/release-cutover-v510.yml'
+      - 'tools/render_relay_release_v510.py'
+      - 'ops/supabase/harden_pc_relay_service_role_only.sql'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-release-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate renderer syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/render_relay_release_v510.py
+
+      - name: Validate explicit two-phase cutover invariants
+        run: |
+          set -euo pipefail
+          f='.github/workflows/release-cutover-v510.yml'
+          grep -q 'PROMOTE-ZHIROX-PC-OS-5.1.0' "$f"
+          grep -q 'release-candidates/v5.1.0' "$f"
+          grep -q 'release-rollbacks/pre-v5.1.0' "$f"
+          grep -q 'relay_cutover_required' "$f"
+          grep -q 'agent_rollout_started' "$f"
+          grep -q 'go run tools/verify_metadata_v510.go' "$f"
+          grep -q 'git push origin HEAD:main' "$f"
+          if grep -q 'supabase functions deploy' "$f"; then
+            echo 'Channel staging workflow must not deploy relay or start rollout.' >&2
+            exit 1
+          fi
+
+      - name: Validate relay renderer safety invariants
+        run: |
+          set -euo pipefail
+          f='tools/render_relay_release_v510.py'
+          grep -q 'candidate provenance is not marked signed' "$f"
+          grep -q 'promotion_requires_explicit_cutover' "$f"
+          grep -q 'candidate Ed25519 signature must decode to 64 bytes' "$f"
+          grep -q 'pc_os_min_agent' "$f"
+          grep -q 'mutation_approval_gate' "$f"
+          grep -q 'main/channel/ZhiroxAISupervisor.exe' "$f"
+
+      - name: Validate service-role-only SQL hardening is narrowly scoped
+        run: |
+          set -euo pipefail
+          f='ops/supabase/harden_pc_relay_service_role_only.sql'
+          grep -q 'revoke all privileges on table public.pc_relay_agents from anon, authenticated' "$f"
+          grep -q 'revoke all privileges on table public.pc_relay_commands from anon, authenticated' "$f"
+          grep -q 'revoke all privileges on table public.pc_relay_command_approvals from anon, authenticated' "$f"
+          if grep -Eqi '\b(drop|truncate|delete|update|insert)\b' "$f"; then
+            echo 'Hardening migration unexpectedly contains data mutation/destruction SQL.' >&2
+            exit 1
+          fi

@@ -1,0 +1,322 @@
+name: Build Zhirox PC OS v5.1.0
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/pc-os-v510
+    paths:
+      - '.github/workflows/build-v510.yml'
+      - 'src/pc_os_v510.go'
+      - 'src/pc_os_cloud_v510.go'
+      - 'src/pc_os_windows_v510.go'
+      - 'src/pc_os_backup_policy_v510.go'
+      - 'src/pc_os_backup_policy_v510_test.go'
+      - 'src/pc_os_backup_v510_windows.go'
+      - 'src/pc_os_update_enforce_v510.go'
+      - 'src/pc_os_self_updater_v510_windows.go'
+      - 'src/update_trust_v510.go'
+      - 'src/pc_os_v510_test.go'
+      - 'src/pc_os_update_enforce_v510_test.go'
+      - 'ops/supabase/zhirox-pc-relay-v15.ts'
+      - 'ops/supabase/pc_os_v510.sql'
+      - 'ops/supabase/pc_relay_approval_gate.sql'
+      - 'tools/patch_v510.py'
+      - 'tools/patch_trust_v510.py'
+      - 'tools/patch_self_updater_v510.py'
+      - 'tools/prepare_trust_v510.go'
+      - 'tools/sign_metadata_v510.go'
+      - 'tools/verify_metadata_v510.go'
+      - 'tools/patch_downloader_v503.py'
+      - 'tools/patch_v505.py'
+      - 'tools/patch_v506.py'
+      - 'tools/patch_v507.py'
+      - 'tools/patch_v508.py'
+      - 'tools/patch_v509.py'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: PC OS unit tests
+        run: |
+          set -euo pipefail
+          go test src/pc_os_v510.go src/pc_os_cloud_v510.go src/pc_os_update_enforce_v510.go src/update_trust_v510.go src/pc_os_backup_policy_v510.go src/pc_os_v510_test.go src/pc_os_update_enforce_v510_test.go src/pc_os_backup_policy_v510_test.go
+
+      - name: Relay type, compatibility and approval-gate checks
+        run: |
+          set -euo pipefail
+          deno check ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'pc_os_min_agent:"5.1.0"' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'agent_version_not_pc_os_capable' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'version:"5.0.8"' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'sanitizeForPostgres' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'RESULT_MAX_JSON_BYTES=1500000' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'result_sanitizer:true' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'structured_universal:true' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'MUTATION_ACTIONS' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'approval_required' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'enqueue_approved_pc_relay_command' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -q 'binaryReadRefused' ops/supabase/zhirox-pc-relay-v15.ts
+          grep -qi 'security invoker' ops/supabase/pc_relay_approval_gate.sql
+          if grep -qi 'security definer' ops/supabase/pc_relay_approval_gate.sql; then
+            echo 'Approval RPC must not use SECURITY DEFINER.' >&2
+            exit 1
+          fi
+          grep -q 'approval_args_mismatch' ops/supabase/pc_relay_approval_gate.sql
+          grep -qi 'grant execute.*service_role' ops/supabase/pc_relay_approval_gate.sql
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('ops/supabase/zhirox-pc-relay-v15.ts').read_text()
+          start=s.index('if(MUTATION_ACTIONS.has(action))')
+          end=s.index('return json({ok:false,error:"action_not_allowed"}', start)
+          block=s[start:end]
+          assert '.rpc("enqueue_approved_pc_relay_command"' in block
+          assert '.from("pc_relay_commands").insert' not in block
+          assert 'approval_required' in block
+          PY
+
+      - name: Restore source
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc channel
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+
+      - name: Apply existing hardened patches
+        run: |
+          set -euo pipefail
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+
+      - name: Add PC OS v5.1.0 modules
+        run: |
+          set -euo pipefail
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python3 tools/patch_v510.py
+          python3 tools/patch_trust_v510.py
+          python3 tools/patch_self_updater_v510.py
+          gofmt -w buildsrc/*.go
+
+      - name: Prepare pinned release trust anchor
+        if: github.ref == 'refs/heads/main'
+        env:
+          ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release build.' >&2; exit 1; }
+          go run tools/prepare_trust_v510.go
+          gofmt -w buildsrc/update_trust_v510.go
+          test -s channel/update-public-key.hex
+          ! grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
+
+      - name: Security invariants
+        run: |
+          set -euo pipefail
+          grep -q '5.1.0' buildsrc/main.go
+          grep -q 'pc_os_overview' buildsrc/main.go
+          grep -q 'pc_os_verify_update' buildsrc/main.go
+          grep -q 'go pcOSBackgroundLoop()' buildsrc/main.go
+          grep -q 'go pcOSCloudLoop()' buildsrc/main.go
+          grep -q 'go pcOSCompanionUpdaterLoop()' buildsrc/main.go
+          grep -q 'pcOSMaybeRunUpdaterMode' buildsrc/main.go
+          grep -q 'func pcOSWindowsInventory' buildsrc/pc_os_windows_v510.go
+          grep -q 'func pcOSWindowsGuardian' buildsrc/pc_os_windows_v510.go
+          grep -q 'func pcOSSQLBackupReadiness' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'func pcOSSQLBackupVerify' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'func pcOSSQLBackupExecute' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'D:\\ZhiroxBackups' buildsrc/pc_os_backup_policy_v510.go
+          grep -q 'remote SQL Server targets are not allowed' buildsrc/pc_os_backup_policy_v510.go
+          grep -q 'backup path must stay inside' buildsrc/pc_os_backup_policy_v510.go
+          grep -q 'BACKUP DATABASE' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'RESTORE VERIFYONLY' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'COPY_ONLY, CHECKSUM, COMPRESSION' buildsrc/pc_os_backup_v510_windows.go
+          grep -q 'func criticalProtectedText' buildsrc/owner_actions.go
+          grep -q 'PID-only termination disabled by critical protection' buildsrc/owner_actions.go
+          grep -q 'operation != "start"' buildsrc/owner_actions.go
+          grep -qi 'database' buildsrc/owner_actions.go
+          grep -q 'arbitrary_shell' buildsrc/pc_os_v510.go
+          grep -q 'ed25519.Verify' buildsrc/pc_os_v510.go
+          grep -q 'pcOSVerifySignedUpdatePayload' buildsrc/main.go
+          grep -q 'signed manifest requires size and Ed25519 signature' buildsrc/main.go
+          grep -q 'func pcOSVerifySignedUpdatePayload' buildsrc/pc_os_update_enforce_v510.go
+          grep -q 'fail_closed_without_key_or_signature' buildsrc/pc_os_v510.go
+          grep -q 'pcOSPinnedUpdatePublicKeyHex' buildsrc/pc_os_v510.go
+          grep -q 'Ed25519 update public key is not pinned in this build' buildsrc/pc_os_v510.go
+          grep -q 'relay URL must be a valid HTTPS endpoint' buildsrc/pc_os_cloud_v510.go
+          grep -q 'ZhiroxAISupervisor.exe.pre-vrollback-' buildsrc/pc_os_self_updater_v510_windows.go
+          grep -q 'health_gate_seconds' buildsrc/pc_os_self_updater_v510_windows.go
+          grep -q 'automatic_delete' buildsrc/pc_os_self_updater_v510_windows.go
+          if grep -q 'update-public-key.hex' buildsrc/pc_os_v510.go; then
+            echo 'Trust invariant failed: runtime verifier still reads a mutable public-key file.' >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ('pc_os_self_updater_v510_windows.go', 'pc_os_backup_v510_windows.go'):
+              text = Path('buildsrc', name).read_text(errors='ignore')
+              if re.search(r'(?i)["\x27](?:cmd|powershell)\.exe["\x27]', text):
+                  raise SystemExit(f'Zero-UI invariant failed: literal shell executable reference found in {name}')
+          PY
+          if grep -Eqi 'exec\.Command\(|powershell\.exe|cmd\.exe' buildsrc/pc_os_v510.go buildsrc/pc_os_cloud_v510.go buildsrc/pc_os_windows_v510.go buildsrc/pc_os_update_enforce_v510.go; then
+            echo 'Zero-UI invariant failed: executable shell launch reference found in read-only PC OS modules.' >&2
+            exit 1
+          fi
+          if grep -Eqi 'serviceControl\(|processTerminate\(|fileDeleteAction\(|registry(Set|Delete)Action\(|firewallRule(Add|Delete|Set)Action\(|driverInstallInfAction\(|msi(Install|Uninstall)Action\(' buildsrc/pc_os_windows_v510.go; then
+            echo 'Read-only invariant failed: mutating structured action referenced by Windows integration.' >&2
+            exit 1
+          fi
+
+      - name: Windows compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
+
+      - name: Ephemeral signed-release preflight
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          cp -a buildsrc "$TMP/buildsrc"
+          mkdir -p "$TMP/channel"
+          ZHIROX_UPDATE_ED25519_SEED_B64=$(head -c 32 /dev/urandom | base64 -w0)
+          export ZHIROX_UPDATE_ED25519_SEED_B64
+          (
+            cd "$TMP"
+            go run "$GITHUB_WORKSPACE/tools/prepare_trust_v510.go"
+            gofmt -w buildsrc/update_trust_v510.go
+          )
+          (
+            cd "$TMP/buildsrc"
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go update_trust_v510.go
+          )
+          (
+            cd "$TMP"
+            go run "$GITHUB_WORKSPACE/tools/sign_metadata_v510.go"
+            go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go"
+            grep -q '"algorithm":"Ed25519"' channel/metadata.json
+            grep -Eq 'pcOSPinnedUpdatePublicKeyHex = "[0-9a-f]{64}"' buildsrc/update_trust_v510.go
+          )
+          unset ZHIROX_UPDATE_ED25519_SEED_B64
+
+      - name: Unsigned branch metadata
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          grep -q 'pcOSPinnedUpdatePublicKeyHex = ""' buildsrc/update_trust_v510.go
+          test ! -e channel/update-public-key.hex
+          SHA=$(sha256sum channel/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel/ZhiroxAISupervisor.exe)
+          printf '{"version":"5.1.0","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"signature_required":true,"pinned_trust_anchor":false,"rollback_updater_embedded":true,"publishable":false,"notes":"feature build only; auto-update trust intentionally fail-closed until signed main release"}\n' "$SHA" "$SIZE" > channel/metadata.json
+          sha256sum channel/ZhiroxAISupervisor.exe > channel/ZhiroxAISupervisor.exe.sha256
+
+      - name: Sign release metadata
+        if: github.ref == 'refs/heads/main'
+        env:
+          ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$ZHIROX_UPDATE_ED25519_SEED_B64" || { echo 'Missing signing secret; refusing release.' >&2; exit 1; }
+          go run tools/sign_metadata_v510.go
+          go run tools/verify_metadata_v510.go
+          grep -q '"algorithm":"Ed25519"' channel/metadata.json
+          test -s channel/update-public-key.hex
+
+      - name: Upload verification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.0-${{ github.sha }}
+          path: |
+            channel/ZhiroxAISupervisor.exe
+            channel/ZhiroxAISupervisor.exe.sha256
+            channel/metadata.json
+            channel/update-public-key.hex
+          if-no-files-found: error
+
+  stage-candidate:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download signed candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.0-${{ github.sha }}
+          path: candidate-input
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Re-verify and stage signed candidate without production promotion
+        run: |
+          set -euo pipefail
+          VERIFY_ROOT=$(mktemp -d)
+          trap 'rm -rf "$VERIFY_ROOT"' EXIT
+          mkdir -p "$VERIFY_ROOT/channel"
+          cp candidate-input/ZhiroxAISupervisor.exe "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe"
+          cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$VERIFY_ROOT/channel/ZhiroxAISupervisor.exe.sha256"
+          cp candidate-input/metadata.json "$VERIFY_ROOT/channel/metadata.json"
+          cp candidate-input/update-public-key.hex "$VERIFY_ROOT/channel/update-public-key.hex"
+          (cd "$VERIFY_ROOT" && go run "$GITHUB_WORKSPACE/tools/verify_metadata_v510.go")
+
+          CANDIDATE_DIR='release-candidates/v5.1.0'
+          rm -rf "$CANDIDATE_DIR"
+          mkdir -p "$CANDIDATE_DIR"
+          cp candidate-input/ZhiroxAISupervisor.exe "$CANDIDATE_DIR/ZhiroxAISupervisor.exe"
+          cp candidate-input/ZhiroxAISupervisor.exe.sha256 "$CANDIDATE_DIR/ZhiroxAISupervisor.exe.sha256"
+          cp candidate-input/metadata.json "$CANDIDATE_DIR/metadata.json"
+          cp candidate-input/update-public-key.hex "$CANDIDATE_DIR/update-public-key.hex"
+          printf '{"version":"5.1.0","source_commit":"%s","workflow_run_id":"%s","signed":true,"production_promoted":false,"promotion_requires_explicit_cutover":true}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$CANDIDATE_DIR/provenance.json"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$CANDIDATE_DIR"
+          if git diff --cached --name-only | grep -q '^channel/'; then
+            echo 'Refusing candidate stage: production channel path was accidentally staged.' >&2
+            exit 1
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m 'Stage signed Zhirox PC OS v5.1.0 candidate [skip ci]'
+            git push
+          fi

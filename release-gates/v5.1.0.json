@@ -1,0 +1,32 @@
+{
+  "version": "5.1.0",
+  "release_ready": false,
+  "production_promotion_approved": false,
+  "production_expected_agent_version": "5.0.8",
+  "production_expected_channel_version": "5.0.8",
+  "bootstrap_rollback_proven": false,
+  "bootstrap_rollback_evidence": [],
+  "legacy_updater_source_audit": {
+    "run_id": 38175575772,
+    "result": "no_dedicated_updater_source_and_no_legacy_rollback_marker"
+  },
+  "v510_windows_updater_integration": {
+    "run_id": 38175914759,
+    "commit": "2174d70f2f2094a088897a966cf48b515ed8dd6e",
+    "result": "passed",
+    "failure_rollback": true,
+    "success_health_gate_seconds": 90,
+    "hash_mismatch_pre_mutation_rejection": true,
+    "zero_ui_asserted": true
+  },
+  "signing_secret_required": "ZHIROX_UPDATE_ED25519_SEED_B64",
+  "signing_secret_status": "missing_at_last_readiness_check",
+  "main_branch_protection_required": true,
+  "main_branch_protection_status": "unprotected_at_last_readiness_check",
+  "notes": [
+    "This file records non-secret release gate state only.",
+    "Do not set bootstrap_rollback_proven=true without durable evidence for the installed 5.0.8-to-5.1.0 transition.",
+    "Do not set release_ready=true manually; the release-readiness workflow is authoritative.",
+    "Merge/build is not production promotion. Production channel cutover remains a separate explicit action."
+  ]
+}

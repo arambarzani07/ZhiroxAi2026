@@ -1,0 +1,50 @@
+name: Test Zhirox v5.1 updater rollback on Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/pc-os-v510
+      - main
+    paths:
+      - '.github/workflows/windows-updater-test-v510.yml'
+      - 'src/pc_os_self_updater_v510_windows.go'
+      - 'src/pc_os_self_updater_v510_windows_teststub.go'
+      - 'src/pc_os_self_updater_v510_windows_test.go'
+
+permissions:
+  contents: read
+
+jobs:
+  updater-integration:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Run actual updater file semantics, health gate and rollback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -tags zhiroxtest -v `
+            src/pc_os_self_updater_v510_windows.go `
+            src/pc_os_self_updater_v510_windows_teststub.go `
+            src/pc_os_self_updater_v510_windows_test.go `
+            -run '^TestPCOSUpdater' -count=1 -timeout 5m
+
+      - name: Confirm production timing and Zero-UI constants were exercised
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $text = Get-Content src/pc_os_self_updater_v510_windows.go -Raw
+          if ($text -notmatch 'time\.NewTimer\(90 \* time\.Second\)') { throw '90-second health gate missing' }
+          if ($text -notmatch 'time\.NewTicker\(2 \* time\.Second\)') { throw '2-second health polling missing' }
+          if ($text -notmatch 'HideWindow: true') { throw 'HideWindow Zero-UI flag missing' }
+          if ($text -notmatch 'CreationFlags: pcOSNoWindowCreationFlag') { throw 'CREATE_NO_WINDOW flag missing' }
+          if ($text -notmatch 'ZhiroxAISupervisor\.exe\.pre-vrollback-') { throw 'rollback backup contract missing' }
