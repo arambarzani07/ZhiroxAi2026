@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/build-v513-zero-touch.yml'
       - 'tools/patch_v513.py'
+      - 'tools/patch_v513_compilefix.py'
       - 'tools/patch_v512.py'
       - 'src/pc_os_watchdog_v512_windows.go'
       - 'src/pc_os_watchdog_policy_v512.go'
@@ -60,6 +61,7 @@ jobs:
           cp src/pc_os_watchdog_v512_windows.go buildsrc/pc_os_watchdog_v512_windows.go
           python3 tools/patch_v512.py
           python3 tools/patch_v513.py
+          python3 tools/patch_v513_compilefix.py
           NEXT="$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex | tr 'A-F' 'a-f')"
           test "$NEXT" = '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
           printf 'package main\n\nconst pcOSPinnedUpdatePublicKeyHex = "%s"\n' "$NEXT" > buildsrc/update_trust_v510.go
