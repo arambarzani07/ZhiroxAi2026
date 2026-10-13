@@ -1,0 +1,58 @@
+name: Remote Control v1 Consent Helper
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-consent.yml'
+      - 'remote/consent-v1/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-consent.yml'
+      - 'remote/consent-v1/**'
+
+permissions:
+  contents: read
+
+jobs:
+  consent-helper:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Unit tests
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Windows compile
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ZhiroxRemoteConsent.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Visible-consent safety invariants
+        shell: pwsh
+        run: |
+          $source = Get-Content 'remote\consent-v1\main_windows.go' -Raw
+          $policy = Get-Content 'remote\consent-v1\policy.go' -Raw
+          if ($source -notmatch 'mbTopMost') { throw 'topmost consent/indicator invariant missing' }
+          if ($source -notmatch 'mbSetForeground') { throw 'foreground consent invariant missing' }
+          if ($source -notmatch 'Click OK .* disconnect') { throw 'local disconnect wording missing' }
+          if ($policy -match 'hidden|silent|unattended') { throw 'unsafe hidden/unattended consent mode found' }
+          $forbidden = @('CreateProcess', 'ShellExecute', 'SendInput', 'OpenClipboard', 'PowerShell', 'cmd.exe')
+          foreach ($needle in $forbidden) {
+            if ($source -match [regex]::Escape($needle)) { throw "Forbidden capability in consent helper: $needle" }
+          }
