@@ -1,0 +1,71 @@
+name: Remote Control v1 Foundation
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-foundation.yml'
+      - 'src/pc_os_remote_control_v1.go'
+      - 'src/pc_os_remote_control_v1_test.go'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+      - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
+      - 'docs/REMOTE_CONTROL_V1.md'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  remote-control-v1-foundation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Go policy tests
+        run: |
+          set -euo pipefail
+          go test src/pc_os_remote_control_v1.go src/pc_os_remote_control_v1_test.go
+
+      - name: Signaling type check
+        run: |
+          set -euo pipefail
+          deno check ops/supabase/zhirox-pc-remote-signaling-v1.ts
+
+      - name: Fail-closed invariants
+        run: |
+          set -euo pipefail
+          grep -q 'Enabled:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'AttendedApprovalRequired:[[:space:]]*true' src/pc_os_remote_control_v1.go
+          grep -q 'UnattendedAccessEnabled:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'SecureDesktopControl:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'SignalingCarriesMedia:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'WebRTCDTLSEncryption:[[:space:]]*true' src/pc_os_remote_control_v1.go
+          grep -q 'Mouse:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'Keyboard:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'Clipboard:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'FileTransfer:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'input_control_enabled:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q 'media_proxy:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|mouse_event|keybd_event|OpenClipboard|SetClipboardData' src/pc_os_remote_control_v1.go ops/supabase/zhirox-pc-remote-signaling-v1.ts; then
+            echo 'Phase 1 must not contain input injection or shell execution.' >&2
+            exit 1
+          fi
+
+      - name: Schema safety checks
+        run: |
+          set -euo pipefail
+          grep -q 'enable row level security' ops/supabase/remote_control_v1_schema.sql
+          grep -q 'revoke all on public.pc_remote_sessions from anon, authenticated' ops/supabase/remote_control_v1_schema.sql
+          grep -q "state in ('requested','approved','connecting','active','ended','rejected','expired')" ops/supabase/remote_control_v1_schema.sql
+          grep -q "expires_at <= requested_at + interval '30 minutes'" ops/supabase/remote_control_v1_schema.sql
