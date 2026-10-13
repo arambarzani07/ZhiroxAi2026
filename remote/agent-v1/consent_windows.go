@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -24,6 +25,7 @@ const (
 	remoteConsentApproveYes    = 0
 	remoteConsentApproveNo     = 10
 	remoteConsentDisconnect    = 20
+	remoteConsentAgentStop     = 21
 	remoteConsentApprovalTTLMS = 2 * 60 * 1000
 	remoteConsentKillWaitMS    = 5000
 	remoteMaxConsentArgBytes   = 512
@@ -74,6 +76,16 @@ type remoteProcessInformation struct {
 type ConsentLauncher struct {
 	helperPath string
 	helperSHA  [sha256.Size]byte
+}
+
+type interactiveProcess struct {
+	mu      sync.Mutex
+	process syscall.Handle
+}
+
+type windowsSessionIndicator struct {
+	proc *interactiveProcess
+	done chan error
 }
 
 func NewConsentLauncher(helperPath, expectedSHA256 string) (*ConsentLauncher, error) {
@@ -133,6 +145,84 @@ func encodeConsentArg(value string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString([]byte(value)), nil
 }
 
+func (p *interactiveProcess) wait(waitMS uint32) (uint32, bool, error) {
+	if p == nil {
+		return 0, false, errors.New("interactive process is nil")
+	}
+	p.mu.Lock()
+	h := p.process
+	p.mu.Unlock()
+	if h == 0 {
+		return 0, false, errors.New("interactive process handle is closed")
+	}
+	waitRet, _, waitErr := remoteWaitForSingleObject.Call(uintptr(h), uintptr(waitMS))
+	if waitRet == remoteWaitTimeout {
+		return 0, true, nil
+	}
+	if waitRet != remoteWaitObject0 {
+		return 0, false, fmt.Errorf("WaitForSingleObject failed: %v", waitErr)
+	}
+	var exitCode uint32 = remoteStillActive
+	ret, _, callErr := remoteGetExitCodeProcess.Call(uintptr(h), uintptr(unsafe.Pointer(&exitCode)))
+	if ret == 0 {
+		return 0, false, fmt.Errorf("GetExitCodeProcess failed: %v", callErr)
+	}
+	if exitCode == remoteStillActive {
+		return 0, false, errors.New("interactive process remained active after wait completion")
+	}
+	return exitCode, false, nil
+}
+
+func (p *interactiveProcess) stop(exitCode uint32) error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.process == 0 {
+		return nil
+	}
+	var current uint32 = remoteStillActive
+	ret, _, callErr := remoteGetExitCodeProcess.Call(uintptr(p.process), uintptr(unsafe.Pointer(&current)))
+	if ret == 0 {
+		return fmt.Errorf("GetExitCodeProcess before stop failed: %v", callErr)
+	}
+	if current != remoteStillActive {
+		return nil
+	}
+	ret, _, callErr = remoteTerminateProcess.Call(uintptr(p.process), uintptr(exitCode))
+	if ret == 0 {
+		return fmt.Errorf("TerminateProcess failed: %v", callErr)
+	}
+	return nil
+}
+
+func (p *interactiveProcess) close() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.process != 0 {
+		remoteCloseHandle.Call(uintptr(p.process))
+		p.process = 0
+	}
+}
+
+func (i *windowsSessionIndicator) Done() <-chan error {
+	if i == nil {
+		return nil
+	}
+	return i.done
+}
+
+func (i *windowsSessionIndicator) Stop() error {
+	if i == nil || i.proc == nil {
+		return nil
+	}
+	return i.proc.stop(remoteConsentAgentStop)
+}
+
 func (l *ConsentLauncher) Approve(controllerLabel, controllerFingerprint string) (bool, error) {
 	label, err := encodeConsentArg(controllerLabel)
 	if err != nil {
@@ -142,13 +232,23 @@ func (l *ConsentLauncher) Approve(controllerLabel, controllerFingerprint string)
 	if err != nil {
 		return false, err
 	}
-	exitCode, err := l.runInteractive([]string{
+	proc, err := l.startInteractive([]string{
 		"--mode=approve",
 		"--controller-label-b64=" + label,
 		"--controller-fingerprint-b64=" + fingerprint,
-	}, remoteConsentApprovalTTLMS)
+	})
 	if err != nil {
 		return false, err
+	}
+	defer proc.close()
+	exitCode, timedOut, err := proc.wait(remoteConsentApprovalTTLMS)
+	if err != nil {
+		return false, err
+	}
+	if timedOut {
+		_ = proc.stop(124)
+		_, _, _ = proc.wait(remoteConsentKillWaitMS)
+		return false, errors.New("consent helper timed out after the 2-minute approval window")
 	}
 	switch exitCode {
 	case remoteConsentApproveYes:
@@ -161,29 +261,37 @@ func (l *ConsentLauncher) Approve(controllerLabel, controllerFingerprint string)
 }
 
 // StartIndicator launches the visible active-session indicator in the signed-in
-// user's desktop. Its result channel emits nil only for the defined local
-// emergency-disconnect exit code (20); all other exits are treated as failure.
-func (l *ConsentLauncher) StartIndicator(controllerLabel string) (<-chan error, error) {
+// user's desktop. Stop terminates the indicator when the remote session ends so
+// the target PC never keeps showing a stale "active" state.
+func (l *ConsentLauncher) StartIndicator(controllerLabel string) (SessionIndicator, error) {
 	label, err := encodeConsentArg(controllerLabel)
 	if err != nil {
 		return nil, err
 	}
-	result := make(chan error, 1)
+	proc, err := l.startInteractive([]string{
+		"--mode=indicator",
+		"--controller-label-b64=" + label,
+	})
+	if err != nil {
+		return nil, err
+	}
+	indicator := &windowsSessionIndicator{proc: proc, done: make(chan error, 1)}
 	go func() {
-		exitCode, runErr := l.runInteractive([]string{
-			"--mode=indicator",
-			"--controller-label-b64=" + label,
-		}, remoteInfinite)
-		if runErr != nil {
-			result <- runErr
-		} else if exitCode != remoteConsentDisconnect {
-			result <- fmt.Errorf("consent helper indicator exited with code %d", exitCode)
-		} else {
-			result <- nil
+		defer proc.close()
+		defer close(indicator.done)
+		exitCode, _, waitErr := proc.wait(remoteInfinite)
+		if waitErr != nil {
+			indicator.done <- waitErr
+			return
 		}
-		close(result)
+		switch exitCode {
+		case remoteConsentDisconnect, remoteConsentAgentStop:
+			indicator.done <- nil
+		default:
+			indicator.done <- fmt.Errorf("consent helper indicator exited with code %d", exitCode)
+		}
 	}()
-	return result, nil
+	return indicator, nil
 }
 
 func quoteWindowsArgument(arg string) string {
@@ -195,37 +303,37 @@ func quoteWindowsArgument(arg string) string {
 	return `"` + arg + `"`
 }
 
-func (l *ConsentLauncher) runInteractive(args []string, waitMS uint32) (uint32, error) {
+func (l *ConsentLauncher) startInteractive(args []string) (*interactiveProcess, error) {
 	if err := l.verifyPinnedHelper(); err != nil {
-		return 0, err
+		return nil, err
 	}
 	activeRaw, _, _ := remoteWTSGetActiveConsoleSessionID.Call()
 	sessionID := uint32(activeRaw)
 	if sessionID == 0xFFFFFFFF {
-		return 0, errors.New("no active interactive console session")
+		return nil, errors.New("no active interactive console session")
 	}
 	var token syscall.Handle
 	ret, _, callErr := remoteWTSQueryUserToken.Call(uintptr(sessionID), uintptr(unsafe.Pointer(&token)))
 	if ret == 0 || token == 0 {
-		return 0, fmt.Errorf("WTSQueryUserToken failed for interactive session %d: %v", sessionID, callErr)
+		return nil, fmt.Errorf("WTSQueryUserToken failed for interactive session %d: %v", sessionID, callErr)
 	}
 	defer remoteCloseHandle.Call(uintptr(token))
 
 	appPtr, err := syscall.UTF16PtrFromString(l.helperPath)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	parts := []string{quoteWindowsArgument(remoteConsentHelperBase)}
 	for _, arg := range args {
 		q := quoteWindowsArgument(arg)
 		if q == "" {
-			return 0, errors.New("consent helper argument contains forbidden characters")
+			return nil, errors.New("consent helper argument contains forbidden characters")
 		}
 		parts = append(parts, q)
 	}
 	cmdPtr, err := syscall.UTF16PtrFromString(strings.Join(parts, " "))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	desktopPtr, _ := syscall.UTF16PtrFromString(`winsta0\default`)
 	cwdPtr, _ := syscall.UTF16PtrFromString(filepath.Dir(l.helperPath))
@@ -245,27 +353,10 @@ func (l *ConsentLauncher) runInteractive(args []string, waitMS uint32) (uint32, 
 		uintptr(unsafe.Pointer(&pi)),
 	)
 	if ret == 0 {
-		return 0, fmt.Errorf("CreateProcessAsUserW failed: %v", callErr)
+		return nil, fmt.Errorf("CreateProcessAsUserW failed: %v", callErr)
 	}
-	defer remoteCloseHandle.Call(uintptr(pi.Process))
-	defer remoteCloseHandle.Call(uintptr(pi.Thread))
-
-	waitRet, _, waitErr := remoteWaitForSingleObject.Call(uintptr(pi.Process), uintptr(waitMS))
-	if waitRet == remoteWaitTimeout {
-		remoteTerminateProcess.Call(uintptr(pi.Process), 124)
-		remoteWaitForSingleObject.Call(uintptr(pi.Process), remoteConsentKillWaitMS)
-		return 0, errors.New("consent helper timed out after the 2-minute approval window")
+	if pi.Thread != 0 {
+		remoteCloseHandle.Call(uintptr(pi.Thread))
 	}
-	if waitRet != remoteWaitObject0 {
-		return 0, fmt.Errorf("WaitForSingleObject failed: %v", waitErr)
-	}
-	var exitCode uint32 = remoteStillActive
-	ret, _, callErr = remoteGetExitCodeProcess.Call(uintptr(pi.Process), uintptr(unsafe.Pointer(&exitCode)))
-	if ret == 0 {
-		return 0, fmt.Errorf("GetExitCodeProcess failed: %v", callErr)
-	}
-	if exitCode == remoteStillActive {
-		return 0, errors.New("consent helper remained active after wait completion")
-	}
-	return exitCode, nil
+	return &interactiveProcess{process: pi.Process}, nil
 }
