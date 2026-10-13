@@ -7,10 +7,12 @@
 #include <mfidl.h>
 #include <mftransform.h>
 #include <mferror.h>
+#include <icodecapi.h>
 #include <codecapi.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <new>
 #include <vector>
 
