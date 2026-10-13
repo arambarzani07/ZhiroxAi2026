@@ -14,6 +14,7 @@ const (
 	ScreenTrackID   = "screen"
 	ScreenStreamID  = "zhirox-remote"
 	ControlChannel  = "zhirox-control"
+	H264FMTP        = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
 )
 
 type SignalSink func(kind string, payload any) error
@@ -50,7 +51,11 @@ func NewAgentSession(cfg Config) (*AgentSession, error) {
 	}
 
 	track, err := webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8},
+		webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeH264,
+			ClockRate:   90000,
+			SDPFmtpLine: H264FMTP,
+		},
 		ScreenTrackID,
 		ScreenStreamID,
 	)
@@ -130,7 +135,10 @@ func (s *AgentSession) AddRemoteICE(candidate webrtc.ICECandidateInit) error {
 	return s.pc.AddICECandidate(candidate)
 }
 
-func (s *AgentSession) WriteVP8Frame(encoded []byte, duration time.Duration) error {
+// WriteH264AccessUnit accepts one encoded H.264 access unit produced by the
+// Windows Media Foundation encoder. The encoder side must provide regular IDR
+// frames and Annex-B compatible sample boundaries suitable for WebRTC packetization.
+func (s *AgentSession) WriteH264AccessUnit(encoded []byte, duration time.Duration) error {
 	if s == nil || s.screen == nil {
 		return errors.New("screen track is not initialized")
 	}
