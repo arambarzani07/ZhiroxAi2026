@@ -81,7 +81,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          go mod download
+          go mod tidy
           $dll = (Resolve-Path '..\encoder-mf-v1\ZhiroxMFH264Encoder.dll').Path
           $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
           $env:ZHIROX_MF_ENCODER_DLL = $dll
