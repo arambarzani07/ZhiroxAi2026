@@ -1,0 +1,29 @@
+{
+  "version": "5.1.4",
+  "from_version": "5.1.2",
+  "source_commit": "af54e952d776f169ee68350cb198e3d37119a4f5",
+  "workflow_run_id": "38415151718",
+  "artifact_id": "11824245763",
+  "artifact_zip_sha256": "f9ef139f7c40b83e8ee592df6a5895a0d2e107dc1efcc7276384bc90955d17fb",
+  "artifact_sha256": "cde1b32f98b157609d9d4bd131f7e5428fe15c4f3642db156c640bec64b5b142",
+  "artifact_size": 6677504,
+  "artifact_gzip_sha256": "4aa94bcc4881c89be942d1299419ffd6755f7af4a598e544c9145e7a086546ef",
+  "artifact_gzip_size": 2827571,
+  "signature_algorithm": "Ed25519",
+  "signing_public_key_hex": "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143",
+  "signature_b64": "Xo+0EoKNNDL259rThxGIqBSYK87ZJzoA33SrEAOHefeRCHDIYsjdZ430oNRsP6jSeJXbvtMsvAG1zu02vYofCw==",
+  "signature_verified": true,
+  "windows_compile_passed": true,
+  "policy_tests_passed": true,
+  "safety_invariants_passed": true,
+  "screen_observability_read_only": true,
+  "screenshot_on_demand_only": true,
+  "status": "blocked",
+  "publishable": false,
+  "blocked_reason": [
+    "private_artifact_transport_not_published",
+    "remote_screenshot_relay_safety_gate_blocked"
+  ],
+  "production_relay_unchanged": true,
+  "production_agent_unchanged": true
+}
