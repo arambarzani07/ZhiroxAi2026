@@ -31,14 +31,17 @@ func (f *fakeRemoteSignaling) MarkActive(context.Context, string) error { return
 func (f *fakeRemoteSignaling) PostSignal(context.Context, string, string, any) error { return nil }
 func (f *fakeRemoteSignaling) PollSignals(context.Context, string, int64) ([]Signal, error) { return nil, nil }
 
+type fakeSessionIndicator struct { done chan error }
+func (f *fakeSessionIndicator) Done() <-chan error { return f.done }
+func (f *fakeSessionIndicator) Stop() error { return nil }
+
 type fakeRemoteConsent struct {
 	approved bool
 	calls    int
 }
 func (f *fakeRemoteConsent) Approve(string, string) (bool, error) { f.calls++; return f.approved, nil }
-func (f *fakeRemoteConsent) StartIndicator(string) (<-chan error, error) {
-	ch := make(chan error)
-	return ch, nil
+func (f *fakeRemoteConsent) StartIndicator(string) (SessionIndicator, error) {
+	return &fakeSessionIndicator{done: make(chan error)}, nil
 }
 
 func validScreenOnlyCapabilities() map[string]any {
@@ -48,6 +51,8 @@ func validScreenOnlyCapabilities() map[string]any {
 		"file_transfer": false, "audio": false,
 	}
 }
+
+func futureExpiry() string { return time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339Nano) }
 
 func testOrchestrator(t *testing.T, signaling RemoteSignaling, consent RemoteConsent) *Orchestrator {
 	t.Helper()
@@ -101,6 +106,7 @@ func TestLocalNoRejectsBeforeWebRTCSession(t *testing.T) {
 	id := "550e8400-e29b-41d4-a716-446655440001"
 	sig := &fakeRemoteSignaling{pending: []PendingSession{{
 		ID: id,
+		ExpiresAt: futureExpiry(),
 		RequestedCapabilities: validScreenOnlyCapabilities(),
 		ControllerLabel: "Support Desk",
 	}}}
@@ -112,6 +118,22 @@ func TestLocalNoRejectsBeforeWebRTCSession(t *testing.T) {
 	if consent.calls != 1 { t.Fatalf("expected one consent prompt, got %d", consent.calls) }
 	if len(sig.rejected) != 1 || sig.rejected[0] != id { t.Fatalf("local No was not rejected: %#v", sig.rejected) }
 	if len(sig.approved) != 0 { t.Fatal("local No must never approve the session") }
+}
+
+func TestMissingServerExpiryRejectsBeforeConsent(t *testing.T) {
+	id := "550e8400-e29b-41d4-a716-446655440002"
+	sig := &fakeRemoteSignaling{pending: []PendingSession{{
+		ID: id,
+		RequestedCapabilities: validScreenOnlyCapabilities(),
+	}}}
+	consent := &fakeRemoteConsent{approved: true}
+	o := testOrchestrator(t, sig, consent)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	err := o.Run(ctx)
+	if err == nil { t.Fatal("missing server expiry must fail closed") }
+	if consent.calls != 0 { t.Fatal("invalid expiry must be rejected before local consent") }
+	if len(sig.rejected) != 1 { t.Fatalf("missing expiry request was not rejected: %#v", sig.rejected) }
 }
 
 func TestOrchestratorRejectsSessionDurationOverThirtyMinutes(t *testing.T) {
