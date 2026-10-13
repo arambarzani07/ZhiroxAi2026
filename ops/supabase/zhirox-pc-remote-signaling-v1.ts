@@ -48,8 +48,6 @@ function cleanLabel(v: unknown) {
 
 function approvedCapabilities(v: unknown) {
   const x = v && typeof v === "object" ? v as Record<string, unknown> : {};
-  // Phase 1 intentionally carries only screen streaming. Input control remains
-  // disabled until a separate reviewed release enables it.
   return {
     screen_stream: x.screen_stream !== false,
     mouse: false,
@@ -95,11 +93,28 @@ async function authAgent(req: Request, expectedAgent: string) {
 
 async function readSession(id: string) {
   const { data, error } = await db.from("pc_remote_sessions")
-    .select("id,agent_id,state,controller_token_hash,requested_at,approved_at,expires_at,last_activity_at,requested_capabilities,approved_capabilities")
+    .select("id,agent_id,state,controller_token_hash,requested_at,approved_at,connected_at,ended_at,expires_at,last_activity_at,requested_capabilities,approved_capabilities,controller_label,controller_fingerprint,reason")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
   return data;
+}
+
+function publicSession(session: any) {
+  return {
+    id: session.id,
+    agent_id: session.agent_id,
+    state: session.state,
+    requested_at: session.requested_at,
+    approved_at: session.approved_at,
+    connected_at: session.connected_at,
+    ended_at: session.ended_at,
+    expires_at: session.expires_at,
+    last_activity_at: session.last_activity_at,
+    requested_capabilities: session.requested_capabilities,
+    approved_capabilities: session.approved_capabilities,
+    reason: session.reason,
+  };
 }
 
 async function audit(sessionId: string | null, agentId: string, eventType: string, actor: "agent" | "controller" | "system", metadata: Record<string, unknown> = {}) {
@@ -190,6 +205,35 @@ Deno.serve(async (req: Request) => {
       return json(data, 202);
     }
 
+    const controllerStatus = path.match(/^\/api\/sessions\/([^/]+)$/);
+    if (controllerStatus && req.method === "GET") {
+      const id = controllerStatus[1];
+      if (!uuidLike(id)) return json({ ok: false, error: "invalid_session_id" }, 400);
+      const tokenHash = await authController(req);
+      if (!tokenHash) return json({ ok: false, error: "controller_unauthorized" }, 401);
+      const session = await readSession(id);
+      if (!session || session.controller_token_hash !== tokenHash) return json({ ok: false, error: "session_not_found" }, 404);
+      return json(publicSession(session));
+    }
+
+    const agentPending = path.match(/^\/api\/agent\/([^/]+)\/sessions\/pending$/);
+    if (agentPending && req.method === "GET") {
+      const agentId = decodeURIComponent(agentPending[1]);
+      if (!(await authAgent(req, agentId))) return json({ ok: false, error: "agent_unauthorized" }, 401);
+      const cutoff = new Date(Date.now() - APPROVAL_TTL_MS).toISOString();
+      const now = new Date().toISOString();
+      const { data, error } = await db.from("pc_remote_sessions")
+        .select("id,state,requested_at,expires_at,requested_capabilities,controller_label,controller_fingerprint")
+        .eq("agent_id", agentId)
+        .eq("state", "requested")
+        .gte("requested_at", cutoff)
+        .gt("expires_at", now)
+        .order("requested_at", { ascending: true })
+        .limit(5);
+      if (error) throw error;
+      return json({ sessions: data || [] });
+    }
+
     const approve = path.match(/^\/api\/agent\/([^/]+)\/sessions\/([^/]+)\/approve$/);
     if (approve && req.method === "POST") {
       const agentId = decodeURIComponent(approve[1]), id = approve[2];
@@ -226,6 +270,23 @@ Deno.serve(async (req: Request) => {
       if (error) throw error;
       await audit(id, agentId, "session_rejected", "agent");
       return json({ ok: true, id, state: "rejected" });
+    }
+
+    const active = path.match(/^\/api\/agent\/([^/]+)\/sessions\/([^/]+)\/active$/);
+    if (active && req.method === "POST") {
+      const agentId = decodeURIComponent(active[1]), id = active[2];
+      if (!uuidLike(id)) return json({ ok: false, error: "invalid_session_id" }, 400);
+      if (!(await authAgent(req, agentId))) return json({ ok: false, error: "agent_unauthorized" }, 401);
+      const session = await readSession(id);
+      if (!session || session.agent_id !== agentId) return json({ ok: false, error: "session_not_found" }, 404);
+      if (!["approved", "connecting"].includes(session.state)) return json({ ok: false, error: "session_not_connecting" }, 409);
+      const now = new Date().toISOString();
+      const { error } = await db.from("pc_remote_sessions")
+        .update({ state: "active", connected_at: now, last_activity_at: now })
+        .eq("id", id).in("state", ["approved", "connecting"]);
+      if (error) throw error;
+      await audit(id, agentId, "session_active", "agent");
+      return json({ ok: true, id, state: "active", connected_at: now });
     }
 
     const controllerSignal = path.match(/^\/api\/sessions\/([^/]+)\/signals$/);
