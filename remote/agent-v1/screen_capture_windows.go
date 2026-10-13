@@ -20,17 +20,17 @@ const (
 )
 
 var (
-	remoteUser32                 = syscall.NewLazyDLL("user32.dll")
-	remoteGDI32                  = syscall.NewLazyDLL("gdi32.dll")
-	remoteGetSystemMetrics       = remoteUser32.NewProc("GetSystemMetrics")
-	remoteGetDC                  = remoteUser32.NewProc("GetDC")
-	remoteReleaseDC              = remoteUser32.NewProc("ReleaseDC")
-	remoteCreateCompatibleDC     = remoteGDI32.NewProc("CreateCompatibleDC")
-	remoteDeleteDC               = remoteGDI32.NewProc("DeleteDC")
-	remoteCreateDIBSection       = remoteGDI32.NewProc("CreateDIBSection")
-	remoteSelectObject           = remoteGDI32.NewProc("SelectObject")
-	remoteDeleteObject           = remoteGDI32.NewProc("DeleteObject")
-	remoteBitBlt                 = remoteGDI32.NewProc("BitBlt")
+	remoteUser32             = syscall.NewLazyDLL("user32.dll")
+	remoteGDI32              = syscall.NewLazyDLL("gdi32.dll")
+	remoteGetSystemMetrics   = remoteUser32.NewProc("GetSystemMetrics")
+	remoteGetDC              = remoteUser32.NewProc("GetDC")
+	remoteReleaseDC          = remoteUser32.NewProc("ReleaseDC")
+	remoteCreateCompatibleDC = remoteGDI32.NewProc("CreateCompatibleDC")
+	remoteDeleteDC           = remoteGDI32.NewProc("DeleteDC")
+	remoteCreateDIBSection   = remoteGDI32.NewProc("CreateDIBSection")
+	remoteSelectObject       = remoteGDI32.NewProc("SelectObject")
+	remoteDeleteObject       = remoteGDI32.NewProc("DeleteObject")
+	remoteBitBlt             = remoteGDI32.NewProc("BitBlt")
 )
 
 type remoteBitmapInfoHeader struct {
@@ -64,7 +64,7 @@ type PrimaryDisplayBGRACapture struct {
 	memDC    uintptr
 	bitmap   uintptr
 	old      uintptr
-	bits     uintptr
+	bits     unsafe.Pointer
 	closed   bool
 }
 
@@ -109,7 +109,7 @@ func NewPrimaryDisplayBGRACapture() (*PrimaryDisplayBGRACapture, error) {
 		Compression: remoteBI_RGB,
 		SizeImage:   stride * uint32(h),
 	}}
-	var bits uintptr
+	var bits unsafe.Pointer
 	bitmap, _, callErr := remoteCreateDIBSection.Call(
 		screenDC,
 		uintptr(unsafe.Pointer(&bmi)),
@@ -118,7 +118,7 @@ func NewPrimaryDisplayBGRACapture() (*PrimaryDisplayBGRACapture, error) {
 		0,
 		0,
 	)
-	if bitmap == 0 || bits == 0 {
+	if bitmap == 0 || bits == nil {
 		return nil, fmt.Errorf("CreateDIBSection failed: %v", callErr)
 	}
 	cleanupBitmap := true
@@ -155,7 +155,7 @@ func (c *PrimaryDisplayBGRACapture) CaptureBGRA() (BGRAFrame, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed || c.screenDC == 0 || c.memDC == 0 || c.bits == 0 {
+	if c.closed || c.screenDC == 0 || c.memDC == 0 || c.bits == nil {
 		return BGRAFrame{}, errors.New("desktop capture is closed")
 	}
 	ret, _, callErr := remoteBitBlt.Call(
@@ -176,12 +176,12 @@ func (c *PrimaryDisplayBGRACapture) CaptureBGRA() (BGRAFrame, error) {
 	if size == 0 || size > 16384*16384*4 {
 		return BGRAFrame{}, errors.New("desktop DIB size is outside approved bounds")
 	}
-	pixels := unsafe.Slice((*byte)(unsafe.Pointer(c.bits)), int(size))
+	pixels := unsafe.Slice((*byte)(c.bits), int(size))
 	return BGRAFrame{
-		Pixels: pixels,
-		Width: c.width,
-		Height: c.height,
-		Stride: c.stride,
+		Pixels:     pixels,
+		Width:      c.width,
+		Height:     c.height,
+		Stride:     c.stride,
 		CapturedAt: time.Now().UTC(),
 	}, nil
 }
@@ -203,7 +203,7 @@ func (c *PrimaryDisplayBGRACapture) Close() error {
 	if c.bitmap != 0 {
 		remoteDeleteObject.Call(c.bitmap)
 		c.bitmap = 0
-		c.bits = 0
+		c.bits = nil
 	}
 	if c.memDC != 0 {
 		remoteDeleteDC.Call(c.memDC)
