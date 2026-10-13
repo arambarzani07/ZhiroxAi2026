@@ -16,16 +16,18 @@ import (
 )
 
 const (
-	remoteCreateNoWindow      = 0x08000000
-	remoteWaitObject0         = 0x00000000
-	remoteWaitTimeout         = 0x00000102
-	remoteInfinite            = 0xFFFFFFFF
-	remoteStillActive         = 259
-	remoteConsentApproveYes   = 0
-	remoteConsentApproveNo    = 10
-	remoteConsentDisconnect   = 20
-	remoteMaxConsentArgBytes  = 512
-	remoteConsentHelperBase   = "ZhiroxRemoteConsent.exe"
+	remoteCreateNoWindow       = 0x08000000
+	remoteWaitObject0          = 0x00000000
+	remoteWaitTimeout          = 0x00000102
+	remoteInfinite             = 0xFFFFFFFF
+	remoteStillActive          = 259
+	remoteConsentApproveYes    = 0
+	remoteConsentApproveNo     = 10
+	remoteConsentDisconnect    = 20
+	remoteConsentApprovalTTLMS = 2 * 60 * 1000
+	remoteConsentKillWaitMS    = 5000
+	remoteMaxConsentArgBytes   = 512
+	remoteConsentHelperBase    = "ZhiroxRemoteConsent.exe"
 )
 
 var (
@@ -36,6 +38,7 @@ var (
 	remoteCloseHandle                  = remoteKernel32.NewProc("CloseHandle")
 	remoteWaitForSingleObject          = remoteKernel32.NewProc("WaitForSingleObject")
 	remoteGetExitCodeProcess           = remoteKernel32.NewProc("GetExitCodeProcess")
+	remoteTerminateProcess             = remoteKernel32.NewProc("TerminateProcess")
 	remoteWTSQueryUserToken            = remoteWTSAPI32.NewProc("WTSQueryUserToken")
 	remoteCreateProcessAsUserW         = remoteAdvapi32.NewProc("CreateProcessAsUserW")
 )
@@ -70,6 +73,7 @@ type remoteProcessInformation struct {
 
 type ConsentLauncher struct {
 	helperPath string
+	helperSHA  [sha256.Size]byte
 }
 
 func NewConsentLauncher(helperPath, expectedSHA256 string) (*ConsentLauncher, error) {
@@ -87,15 +91,28 @@ func NewConsentLauncher(helperPath, expectedSHA256 string) (*ConsentLauncher, er
 	if err != nil || len(want) != sha256.Size {
 		return nil, errors.New("consent helper SHA-256 pin is invalid")
 	}
-	b, err := os.ReadFile(clean)
+	var pin [sha256.Size]byte
+	copy(pin[:], want)
+	launcher := &ConsentLauncher{helperPath: clean, helperSHA: pin}
+	if err := launcher.verifyPinnedHelper(); err != nil {
+		return nil, err
+	}
+	return launcher, nil
+}
+
+func (l *ConsentLauncher) verifyPinnedHelper() error {
+	if l == nil || l.helperPath == "" {
+		return errors.New("consent launcher is not initialized")
+	}
+	b, err := os.ReadFile(l.helperPath)
 	if err != nil {
-		return nil, fmt.Errorf("read consent helper: %w", err)
+		return fmt.Errorf("read consent helper: %w", err)
 	}
 	got := sha256.Sum256(b)
-	if !equalBytes(got[:], want) {
-		return nil, errors.New("consent helper SHA-256 mismatch")
+	if !equalBytes(got[:], l.helperSHA[:]) {
+		return errors.New("consent helper SHA-256 mismatch")
 	}
-	return &ConsentLauncher{helperPath: clean}, nil
+	return nil
 }
 
 func equalBytes(a, b []byte) bool {
@@ -129,7 +146,7 @@ func (l *ConsentLauncher) Approve(controllerLabel, controllerFingerprint string)
 		"--mode=approve",
 		"--controller-label-b64=" + label,
 		"--controller-fingerprint-b64=" + fingerprint,
-	}, remoteInfinite)
+	}, remoteConsentApprovalTTLMS)
 	if err != nil {
 		return false, err
 	}
@@ -179,8 +196,8 @@ func quoteWindowsArgument(arg string) string {
 }
 
 func (l *ConsentLauncher) runInteractive(args []string, waitMS uint32) (uint32, error) {
-	if l == nil || l.helperPath == "" {
-		return 0, errors.New("consent launcher is not initialized")
+	if err := l.verifyPinnedHelper(); err != nil {
+		return 0, err
 	}
 	activeRaw, _, _ := remoteWTSGetActiveConsoleSessionID.Call()
 	sessionID := uint32(activeRaw)
@@ -235,7 +252,9 @@ func (l *ConsentLauncher) runInteractive(args []string, waitMS uint32) (uint32, 
 
 	waitRet, _, waitErr := remoteWaitForSingleObject.Call(uintptr(pi.Process), uintptr(waitMS))
 	if waitRet == remoteWaitTimeout {
-		return 0, errors.New("consent helper timed out")
+		remoteTerminateProcess.Call(uintptr(pi.Process), 124)
+		remoteWaitForSingleObject.Call(uintptr(pi.Process), remoteConsentKillWaitMS)
+		return 0, errors.New("consent helper timed out after the 2-minute approval window")
 	}
 	if waitRet != remoteWaitObject0 {
 		return 0, fmt.Errorf("WaitForSingleObject failed: %v", waitErr)
