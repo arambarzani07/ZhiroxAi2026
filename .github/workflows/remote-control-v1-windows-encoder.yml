@@ -7,12 +7,18 @@ on:
     paths:
       - '.github/workflows/remote-control-v1-windows-encoder.yml'
       - 'remote/encoder-mf-v1/**'
+      - 'remote/agent-v1/encoder_windows.go'
+      - 'remote/agent-v1/encoder_windows_test.go'
+      - 'remote/agent-v1/go.mod'
   pull_request:
     branches:
       - main
     paths:
       - '.github/workflows/remote-control-v1-windows-encoder.yml'
       - 'remote/encoder-mf-v1/**'
+      - 'remote/agent-v1/encoder_windows.go'
+      - 'remote/agent-v1/encoder_windows_test.go'
+      - 'remote/agent-v1/go.mod'
 
 permissions:
   contents: read
@@ -22,6 +28,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
 
       - name: Compile Media Foundation H264 encoder DLL and probe
         shell: pwsh
@@ -45,10 +56,24 @@ jobs:
           .\probe.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Go to DLL bridge probe with SHA pin
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod download
+          $dll = (Resolve-Path '..\encoder-mf-v1\ZhiroxMFH264Encoder.dll').Path
+          $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          $env:ZHIROX_MF_ENCODER_DLL = $dll
+          $env:ZHIROX_MF_ENCODER_SHA256 = $sha
+          go test -run 'TestMFH264Encoder' -v .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: DLL safety boundary scan
         shell: pwsh
         run: |
           $text = Get-Content 'remote\encoder-mf-v1\encoder.cpp' -Raw
+          $go = Get-Content 'remote\agent-v1\encoder_windows.go' -Raw
           $forbidden = @('CreateProcess', 'ShellExecute', 'WinExec', 'PowerShell', 'cmd.exe', 'SendInput', 'OpenClipboard', 'SetClipboardData')
           foreach ($needle in $forbidden) {
             if ($text -match [regex]::Escape($needle)) { throw "Forbidden capability in encoder: $needle" }
@@ -56,3 +81,5 @@ jobs:
           if ($text -notmatch 'MFVideoFormat_NV12') { throw 'NV12 input invariant missing' }
           if ($text -notmatch 'MFVideoFormat_H264') { throw 'H264 output invariant missing' }
           if ($text -notmatch 'CODECAPI_AVLowLatencyMode') { throw 'low-latency invariant missing' }
+          if ($go -notmatch 'SHA-256 pin is required') { throw 'DLL SHA pin invariant missing' }
+          if ($go -notmatch 'filepath.IsAbs') { throw 'absolute DLL path invariant missing' }
