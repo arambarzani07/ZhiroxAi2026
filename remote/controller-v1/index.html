@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Zhirox Remote Control v1</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #101215; color: #f4f6f8; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .card { background: #1a1e23; border: 1px solid #303640; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 12px; }
+    label { display: grid; gap: 6px; font-size: 13px; color: #b9c0c9; }
+    input, textarea, button { font: inherit; }
+    input, textarea { background: #0e1115; border: 1px solid #38414c; border-radius: 9px; color: #fff; padding: 10px; }
+    button { border: 0; border-radius: 9px; padding: 10px 14px; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    video { width: 100%; min-height: 360px; background: #000; border-radius: 12px; object-fit: contain; }
+    #status { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
+    .danger { background: #6f2930; color: white; }
+    .primary { background: #e5e7eb; color: #111; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .badge { display:inline-block; border:1px solid #46505c; padding:4px 8px; border-radius:999px; font-size:12px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Zhirox Remote Control v1</h1>
+  <p><span class="badge">Attended approval</span> <span class="badge">Screen only</span> <span class="badge">Input disabled</span></p>
+
+  <section class="card">
+    <div class="grid">
+      <label>Signaling endpoint
+        <input id="endpoint" placeholder="https://PROJECT.supabase.co/functions/v1/zhirox-pc-remote-signaling-v1" autocomplete="off" />
+      </label>
+      <label>Controller token
+        <input id="token" type="password" autocomplete="off" />
+      </label>
+      <label>Agent ID
+        <input id="agent" value="Server-c24b5c0f" autocomplete="off" />
+      </label>
+      <label>Controller label
+        <input id="label" value="Zhirox Browser Controller" autocomplete="off" />
+      </label>
+    </div>
+    <label style="margin-top:12px">Optional ICE servers JSON
+      <textarea id="ice" rows="3" placeholder='[{"urls":["stun:stun.example.com:3478"]},{"urls":["turn:turn.example.com:3478"],"username":"...","credential":"..."}]'></textarea>
+    </label>
+    <div class="row" style="margin-top:12px">
+      <button id="connect" class="primary">Request session</button>
+      <button id="disconnect" class="danger" disabled>Disconnect</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <video id="screen" autoplay playsinline></video>
+  </section>
+
+  <section class="card">
+    <strong>Status</strong>
+    <div id="status">idle</div>
+  </section>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
