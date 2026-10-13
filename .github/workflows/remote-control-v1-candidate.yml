@@ -1,0 +1,164 @@
+name: Remote Control v1 Screen-Only Candidate
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-candidate.yml'
+      - 'remote/agent-v1/**'
+      - 'remote/consent-v1/**'
+      - 'remote/encoder-mf-v1/**'
+      - 'tools/patch_remote_mf_startup_v1.py'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-candidate.yml'
+      - 'remote/agent-v1/**'
+      - 'remote/consent-v1/**'
+      - 'remote/encoder-mf-v1/**'
+      - 'tools/patch_remote_mf_startup_v1.py'
+
+permissions:
+  contents: read
+
+jobs:
+  build-screen-only-candidate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Build native Media Foundation H264 encoder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch_remote_mf_startup_v1.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual C++ toolchain not found' }
+          $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $dir = (Resolve-Path 'remote\encoder-mf-v1').Path
+          $cmd = '"' + $dev + '" -arch=x64 -host_arch=x64 && cd /d "' + $dir + '" && cl /nologo /std:c++17 /EHsc /LD encoder.cpp /Fe:ZhiroxMFH264Encoder.dll /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc probe.cpp /Fe:probe.exe'
+          cmd.exe /d /s /c $cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$dir\probe.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build visible consent helper
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ZhiroxRemoteConsent.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test and build screen-only agent
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          $dll = (Resolve-Path '..\encoder-mf-v1\ZhiroxMFH264Encoder.dll').Path
+          $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          $env:ZHIROX_MF_ENCODER_DLL = $dll
+          $env:ZHIROX_MF_ENCODER_SHA256 = $sha
+          go test -v .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-s -w' -o ZhiroxRemoteScreenAgent.exe ./cmd/zhirox-remote-screen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Candidate safety invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $policy = Get-Content 'src\pc_os_remote_control_v1.go' -Raw
+          $orchestrator = Get-Content 'remote\agent-v1\orchestrator.go' -Raw
+          $entry = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\main_windows.go' -Raw
+          $consent = Get-Content 'remote\consent-v1\main_windows.go' -Raw
+          if ($policy -notmatch 'pcOSRemoteControlDefaultEnabled\s*=\s*false') { throw 'remote control must remain disabled by default' }
+          if ($policy -notmatch 'pcOSRemoteInputRuntimeEnabled\s*=\s*false') { throw 'remote input runtime must remain disabled' }
+          if ($orchestrator -notmatch 'screenOnlyCapabilities') { throw 'screen-only capability gate missing' }
+          if ($orchestrator -notmatch 'MaxRemoteSessionDuration\s*=\s*30 \* time.Minute') { throw '30-minute session limit missing' }
+          if ($entry -match 'fmt\.Print.*AGENT_SECRET|log\.Print.*AGENT_SECRET') { throw 'candidate must never log the agent secret' }
+          if ($entry -notmatch 'ZHIROX_AGENT_SECRET') { throw 'candidate agent auth binding missing' }
+          if ($consent -notmatch 'Allow this screen-viewing session') { throw 'visible attended approval wording missing' }
+          $forbidden = @('SendInput', 'mouse_event', 'keybd_event', 'OpenClipboard', 'SetClipboardData', 'CreateProcessWithToken')
+          foreach ($needle in $forbidden) {
+            if ($orchestrator -match [regex]::Escape($needle)) { throw "Forbidden capability in orchestrator: $needle" }
+            if ($entry -match [regex]::Escape($needle)) { throw "Forbidden capability in candidate: $needle" }
+          }
+
+      - name: Assemble immutable candidate bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'remote-candidate' | Out-Null
+          Copy-Item 'remote\agent-v1\ZhiroxRemoteScreenAgent.exe' 'remote-candidate\ZhiroxRemoteScreenAgent.exe'
+          Copy-Item 'remote\consent-v1\ZhiroxRemoteConsent.exe' 'remote-candidate\ZhiroxRemoteConsent.exe'
+          Copy-Item 'remote\encoder-mf-v1\ZhiroxMFH264Encoder.dll' 'remote-candidate\ZhiroxMFH264Encoder.dll'
+
+          $files = @('ZhiroxRemoteScreenAgent.exe','ZhiroxRemoteConsent.exe','ZhiroxMFH264Encoder.dll')
+          $artifacts = @()
+          foreach ($name in $files) {
+            $path = Join-Path 'remote-candidate' $name
+            $artifacts += [ordered]@{
+              file = $name
+              sha256 = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+              size = (Get-Item $path).Length
+            }
+          }
+          $manifest = [ordered]@{
+            bundle = 'zhirox-remote-control-v1-screen-only'
+            source_commit = '${{ github.sha }}'
+            base_version = '5.1.6'
+            architecture = 'windows-amd64'
+            publishable = $false
+            production_enabled = $false
+            attended_approval_required = $true
+            unattended_access = $false
+            screen_stream = $true
+            mouse = $false
+            keyboard = $false
+            clipboard = $false
+            file_transfer = $false
+            audio = $false
+            uac_secure_desktop_control = $false
+            max_session_minutes = 30
+            artifacts = $artifacts
+          }
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 'remote-candidate\manifest.json'
+          (Get-FileHash -Algorithm SHA256 'remote-candidate\manifest.json').Hash.ToLowerInvariant() | Set-Content -Encoding ASCII 'remote-candidate\manifest.json.sha256'
+
+      - name: Verify bundle hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content 'remote-candidate\manifest.json' -Raw | ConvertFrom-Json
+          if ($manifest.publishable -ne $false -or $manifest.production_enabled -ne $false) { throw 'candidate bundle must remain non-publishable' }
+          foreach ($artifact in $manifest.artifacts) {
+            $path = Join-Path 'remote-candidate' $artifact.file
+            if (!(Test-Path $path)) { throw "Missing candidate artifact $($artifact.file)" }
+            $actual = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            if ($actual -ne $artifact.sha256) { throw "SHA mismatch for $($artifact.file)" }
+          }
+
+      - name: Upload screen-only candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-Remote-Control-v1-screen-only-${{ github.sha }}
+          path: remote-candidate/*
+          if-no-files-found: error
