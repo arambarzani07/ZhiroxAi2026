@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -33,6 +34,17 @@ func argValue(prefix string) string {
 	return ""
 }
 
+func decodedDisplayArg(b64Prefix, legacyPrefix string) string {
+	if raw := argValue(b64Prefix); raw != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(raw)
+		if err != nil || len(decoded) > 512 {
+			return ""
+		}
+		return string(decoded)
+	}
+	return argValue(legacyPrefix)
+}
+
 func showMessage(title, body string, flags uintptr) (int, error) {
 	titlePtr, err := syscall.UTF16PtrFromString(title)
 	if err != nil {
@@ -55,8 +67,8 @@ func showMessage(title, body string, flags uintptr) (int, error) {
 }
 
 func runApprove() int {
-	label := sanitizeDisplayText(argValue("--controller-label="), maxDisplayLabelChars)
-	fingerprint := sanitizeDisplayText(argValue("--controller-fingerprint="), maxFingerprintChars)
+	label := sanitizeDisplayText(decodedDisplayArg("--controller-label-b64=", "--controller-label="), maxDisplayLabelChars)
+	fingerprint := sanitizeDisplayText(decodedDisplayArg("--controller-fingerprint-b64=", "--controller-fingerprint="), maxFingerprintChars)
 	if label == "" {
 		label = "Unknown controller"
 	}
@@ -83,7 +95,7 @@ func runApprove() int {
 }
 
 func runIndicator() int {
-	label := sanitizeDisplayText(argValue("--controller-label="), maxDisplayLabelChars)
+	label := sanitizeDisplayText(decodedDisplayArg("--controller-label-b64=", "--controller-label="), maxDisplayLabelChars)
 	if label == "" {
 		label = "Remote controller"
 	}
