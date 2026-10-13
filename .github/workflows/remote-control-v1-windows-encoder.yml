@@ -7,9 +7,7 @@ on:
     paths:
       - '.github/workflows/remote-control-v1-windows-encoder.yml'
       - 'remote/encoder-mf-v1/**'
-      - 'remote/agent-v1/encoder_windows.go'
-      - 'remote/agent-v1/encoder_windows_test.go'
-      - 'remote/agent-v1/go.mod'
+      - 'remote/agent-v1/**'
       - 'tools/patch_remote_mf_startup_v1.py'
   pull_request:
     branches:
@@ -17,9 +15,7 @@ on:
     paths:
       - '.github/workflows/remote-control-v1-windows-encoder.yml'
       - 'remote/encoder-mf-v1/**'
-      - 'remote/agent-v1/encoder_windows.go'
-      - 'remote/agent-v1/encoder_windows_test.go'
-      - 'remote/agent-v1/go.mod'
+      - 'remote/agent-v1/**'
       - 'tools/patch_remote_mf_startup_v1.py'
 
 permissions:
@@ -76,7 +72,7 @@ jobs:
           .\probe.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Go to DLL bridge probe with SHA pin
+      - name: Go bridge, DIB capture compile and direct-ICE screen-track gates
         working-directory: remote/agent-v1
         shell: pwsh
         run: |
@@ -86,20 +82,31 @@ jobs:
           $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
           $env:ZHIROX_MF_ENCODER_DLL = $dll
           $env:ZHIROX_MF_ENCODER_SHA256 = $sha
-          go test -run 'TestMFH264Encoder' -v .
+          go test -v .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: DLL safety boundary scan
+      - name: Capture and DLL safety boundary scan
         shell: pwsh
         run: |
           $text = Get-Content 'remote\encoder-mf-v1\encoder.cpp' -Raw
           $go = Get-Content 'remote\agent-v1\encoder_windows.go' -Raw
+          $capture = Get-Content 'remote\agent-v1\screen_capture_windows.go' -Raw
+          $pipeline = Get-Content 'remote\agent-v1\screen_pipeline_windows.go' -Raw
           $forbidden = @('CreateProcess', 'ShellExecute', 'WinExec', 'PowerShell', 'cmd.exe', 'SendInput', 'OpenClipboard', 'SetClipboardData')
           foreach ($needle in $forbidden) {
             if ($text -match [regex]::Escape($needle)) { throw "Forbidden capability in encoder: $needle" }
+            if ($capture -match [regex]::Escape($needle)) { throw "Forbidden capability in capture: $needle" }
+            if ($pipeline -match [regex]::Escape($needle)) { throw "Forbidden capability in pipeline: $needle" }
           }
           if ($text -notmatch 'MFVideoFormat_NV12') { throw 'NV12 input invariant missing' }
           if ($text -notmatch 'MFVideoFormat_H264') { throw 'H264 output invariant missing' }
           if ($text -notmatch 'CODECAPI_AVLowLatencyMode') { throw 'low-latency invariant missing' }
           if ($go -notmatch 'SHA-256 pin is required') { throw 'DLL SHA pin invariant missing' }
           if ($go -notmatch 'filepath.IsAbs') { throw 'absolute DLL path invariant missing' }
+          if ($capture -notmatch 'CreateDIBSection') { throw 'DIB capture invariant missing' }
+          if ($capture -notmatch 'BitBlt') { throw 'desktop BitBlt invariant missing' }
+          if ($pipeline -notmatch 'RunScreenStream') { throw 'capture-to-encoder-to-WebRTC wiring invariant missing' }
