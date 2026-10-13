@@ -131,7 +131,10 @@ jobs:
           }
           $manifest = [ordered]@{
             bundle = 'zhirox-remote-control-v1-screen-only'
+            source_repository = '${{ github.repository }}'
+            source_ref = '${{ github.ref }}'
             source_commit = '${{ github.sha }}'
+            workflow_run_id = '${{ github.run_id }}'
             base_version = '5.1.6'
             architecture = 'windows-amd64'
             publishable = $false
@@ -157,6 +160,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $manifest = Get-Content 'remote-candidate\manifest.json' -Raw | ConvertFrom-Json
           if ($manifest.publishable -ne $false -or $manifest.production_enabled -ne $false) { throw 'candidate bundle must remain non-publishable' }
+          if ($manifest.source_commit -ne '${{ github.sha }}') { throw 'candidate source commit provenance mismatch' }
+          if ($manifest.source_repository -ne '${{ github.repository }}') { throw 'candidate repository provenance mismatch' }
           foreach ($artifact in $manifest.artifacts) {
             $path = Join-Path 'remote-candidate' $artifact.file
             if (!(Test-Path $path)) { throw "Missing candidate artifact $($artifact.file)" }
