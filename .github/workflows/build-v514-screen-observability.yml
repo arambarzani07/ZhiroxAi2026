@@ -88,9 +88,9 @@ jobs:
           grep -q 'pc_os_screenshot' buildsrc/main.go
           grep -q 'pcOSScreenObservationHelperRequested' buildsrc/main.go
           grep -q 'screen_observability_read_only' buildsrc/pc_os_v510.go
-          grep -q 'screenshot_continuous' buildsrc/pc_os_screen_observability.go
+          grep -q 'continuous_capture' buildsrc/pc_os_screen_observability.go
           grep -q 'input_control' buildsrc/pc_os_screen_observability.go
-          grep -q 'pcOSScreenMaxPayloadBytes' buildsrc/pc_os_screen_observability.go
+          grep -q 'pcOSScreenMaxJPEGBytes' buildsrc/pc_os_screen_observability.go
           if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|mouse_event|keybd_event|OpenClipboard|GetClipboardData|SetClipboardData|waveInOpen|capCreateCaptureWindow' buildsrc/pc_os_screen_observability_windows.go; then
             echo 'Screen observability must remain read-only and must not invoke shell/input/clipboard/mic/camera control.' >&2
             exit 1
