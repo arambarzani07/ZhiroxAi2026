@@ -1,8 +1,16 @@
 # Zhirox Full Remote Control v1
 
-Status: **screen-only candidate development — not production enabled**
+Status: **screen-only candidate built and CI-verified — not production enabled**
 
 Base: `main` / Zhirox PC OS v5.1.6
+
+Verified candidate source commit: `c8c0372fffb4aefe97cdb32318dfa8dcf8ccff54`
+
+GitHub Actions candidate artifact:
+- name: `Zhirox-Remote-Control-v1-screen-only-c8c0372fffb4aefe97cdb32318dfa8dcf8ccff54`
+- artifact digest: `sha256:62209ac080261f050105521def8b238bd5021d5ca04d9fe166e35bfbc6b351e2`
+- artifact size: `5,208,289` bytes
+- manifest remains `publishable:false` and `production_enabled:false`
 
 ## Goal
 
@@ -109,7 +117,7 @@ The signaling contract includes:
 
 An isolated Windows candidate entrypoint is provided at `remote/agent-v1/cmd/zhirox-remote-screen` for controlled pre-production testing. It reads signaling/agent authentication and runtime paths from environment variables; credentials are never embedded into the binary or manifest.
 
-The candidate bundle workflow builds:
+The candidate bundle contains:
 - `ZhiroxRemoteScreenAgent.exe`
 - `ZhiroxRemoteConsent.exe`
 - `ZhiroxMFH264Encoder.dll`
@@ -130,19 +138,21 @@ Verified gates include:
 9. Direct-ICE H.264 RTP delivery test.
 10. Visible consent-helper build/policy tests.
 11. Interactive-session consent launcher and fail-closed lifecycle compile/tests.
+12. Exact-head immutable candidate bundle build and artifact digest verification.
+
+The real Windows encoder probe produced `30,072` bytes of Annex-B H.264 during the verified candidate build. Direct ICE passed. Credentialed TURN remained skipped because TURN credentials were not configured in that GitHub Actions run.
 
 ## Remaining pre-production gates
 
 The following are intentionally not claimed complete yet:
 
-1. Build and verify the immutable screen-only candidate bundle from the exact reviewed source commit.
-2. Deploy the remote signaling schema/function to an isolated/canary control plane and run Supabase security/advisor checks.
-3. Run a real browser -> real target Windows screen-stream session using the candidate binaries.
-4. Run the same real session with credentialed TURN forced (`relay` policy), not merely direct ICE.
-5. Verify controller hangup, local emergency disconnect, approval expiry, 30-minute/server expiry and reconnect/failure behavior on the real target.
-6. Produce a separately reviewed signed production candidate under the current Ed25519 trust anchor; do not replace or mutate the promoted v5.1.6 artifact.
-7. Pass the existing update health/rollback gate.
-8. Controlled screen-only rollout followed by live audit.
+1. Deploy the remote signaling schema/function to an isolated/canary control plane and run Supabase security/advisor checks.
+2. Run a real browser -> real target Windows screen-stream session using the verified candidate binaries.
+3. Run the same real session with credentialed TURN forced (`relay` policy), not merely direct ICE.
+4. Verify controller hangup, local emergency disconnect, approval expiry, 30-minute/server expiry and reconnect/failure behavior on the real target.
+5. Produce a separately reviewed signed production candidate under the current Ed25519 trust anchor; do not replace or mutate the promoted v5.1.6 artifact.
+6. Pass the existing update health/rollback gate.
+7. Controlled screen-only rollout followed by live audit.
 
 ## Explicit input-control phase
 
