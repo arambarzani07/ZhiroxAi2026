@@ -11,6 +11,7 @@ on:
       - 'src/pc_os_remote_input_v1.go'
       - 'src/pc_os_remote_input_v1_test.go'
       - 'remote/agent-v1/**'
+      - 'remote/controller-v1/**'
       - 'ops/supabase/remote_control_v1_schema.sql'
       - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
       - 'docs/REMOTE_CONTROL_V1.md'
@@ -50,10 +51,17 @@ jobs:
           go vet ./...
           git diff --exit-code -- go.mod
 
-      - name: Signaling type check
+      - name: Signaling and browser-controller checks
         run: |
           set -euo pipefail
           deno check ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          node --check remote/controller-v1/app.js
+          grep -q 'video/h264' remote/controller-v1/app.js
+          grep -q 'waiting for local approval' remote/controller-v1/app.js
+          if grep -Eqi 'localStorage|sessionStorage|addEventListener\(["'"'](keydown|keyup|mousemove|mousedown|mouseup|wheel)' remote/controller-v1/app.js; then
+            echo 'Controller v1 must not persist credentials or send input events.' >&2
+            exit 1
+          fi
 
       - name: Fail-closed invariants
         run: |
