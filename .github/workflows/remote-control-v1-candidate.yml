@@ -1,6 +1,7 @@
 name: Remote Control v1 Screen-Only Candidate
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/full-remote-control-v1
@@ -9,6 +10,8 @@ on:
       - 'remote/agent-v1/**'
       - 'remote/consent-v1/**'
       - 'remote/encoder-mf-v1/**'
+      - 'src/pc_os_remote_control_v1.go'
+      - 'src/pc_os_remote_input_v1.go'
       - 'tools/patch_remote_mf_startup_v1.py'
   pull_request:
     branches:
@@ -18,6 +21,8 @@ on:
       - 'remote/agent-v1/**'
       - 'remote/consent-v1/**'
       - 'remote/encoder-mf-v1/**'
+      - 'src/pc_os_remote_control_v1.go'
+      - 'src/pc_os_remote_input_v1.go'
       - 'tools/patch_remote_mf_startup_v1.py'
 
 permissions:
@@ -86,11 +91,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $policy = Get-Content 'src\pc_os_remote_control_v1.go' -Raw
+          $inputPolicy = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
           $orchestrator = Get-Content 'remote\agent-v1\orchestrator.go' -Raw
           $entry = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\main_windows.go' -Raw
           $consent = Get-Content 'remote\consent-v1\main_windows.go' -Raw
-          if ($policy -notmatch 'pcOSRemoteControlDefaultEnabled\s*=\s*false') { throw 'remote control must remain disabled by default' }
-          if ($policy -notmatch 'pcOSRemoteInputRuntimeEnabled\s*=\s*false') { throw 'remote input runtime must remain disabled' }
+          if ($policy -notmatch 'Enabled:\s+false') { throw 'remote control must remain disabled by default' }
+          if ($policy -notmatch 'AttendedApprovalRequired:\s+true') { throw 'attended approval invariant missing' }
+          if ($policy -notmatch 'UnattendedAccessEnabled:\s+false') { throw 'unattended access must remain disabled' }
+          if ($inputPolicy -notmatch 'pcOSRemoteInputRuntimeEnabled\s*=\s*false') { throw 'remote input runtime must remain disabled' }
           if ($orchestrator -notmatch 'screenOnlyCapabilities') { throw 'screen-only capability gate missing' }
           if ($orchestrator -notmatch 'MaxRemoteSessionDuration\s*=\s*30 \* time.Minute') { throw '30-minute session limit missing' }
           if ($entry -match 'fmt\.Print.*AGENT_SECRET|log\.Print.*AGENT_SECRET') { throw 'candidate must never log the agent secret' }
