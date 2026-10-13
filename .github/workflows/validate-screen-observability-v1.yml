@@ -1,0 +1,93 @@
+name: Validate screen observability v1
+
+on:
+  push:
+    branches:
+      - feature/screen-observability-v1
+    paths:
+      - 'src/pc_os_screen_observability.go'
+      - 'src/pc_os_screen_observability_windows.go'
+      - 'src/pc_os_screen_observability_test.go'
+      - 'tools/patch_screen_observability_v1.py'
+      - '.github/workflows/validate-screen-observability-v1.yml'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Policy tests
+        run: |
+          set -euo pipefail
+          go test src/pc_os_screen_observability.go src/pc_os_screen_observability_test.go
+
+      - name: Restore Supervisor source through v5.1.2
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python3 tools/patch_v510.py
+          python3 tools/patch_trust_v510.py
+          python3 tools/patch_self_updater_v510.py
+          cp src/pc_os_recovery_v511_windows.go buildsrc/pc_os_recovery_v511_windows.go
+          python3 tools/patch_v511.py
+          cp src/pc_os_watchdog_policy_v512.go buildsrc/pc_os_watchdog_policy_v512.go
+          cp src/pc_os_watchdog_v512_windows.go buildsrc/pc_os_watchdog_v512_windows.go
+          python3 tools/patch_v512.py
+          cp src/pc_os_screen_observability.go buildsrc/pc_os_screen_observability.go
+          cp src/pc_os_screen_observability_windows.go buildsrc/pc_os_screen_observability_windows.go
+          python3 tools/patch_screen_observability_v1.py
+          gofmt -w buildsrc/*.go
+
+      - name: Safety invariants
+        run: |
+          set -euo pipefail
+          grep -q 'pc_os_active_window' buildsrc/main.go
+          grep -q 'pc_os_screenshot' buildsrc/main.go
+          grep -q 'pcOSScreenObservationHelperRequested' buildsrc/main.go
+          grep -q 'screen_observability_read_only' buildsrc/pc_os_v510.go
+          grep -q 'continuous_capture.*false' buildsrc/pc_os_screen_observability.go
+          grep -q 'input_control.*false' buildsrc/pc_os_screen_observability.go
+          grep -q 'keyboard_capture.*false' buildsrc/pc_os_screen_observability.go
+          grep -q 'mouse_capture.*false' buildsrc/pc_os_screen_observability.go
+          if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|keybd_event|mouse_event' buildsrc/pc_os_screen_observability_windows.go; then
+            echo 'Screen observability must remain read-only and must not invoke shell/input injection.' >&2
+            exit 1
+          fi
+
+      - name: Windows compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../ZhiroxAISupervisor-screen-observability-test.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go pc_os_screen_observability.go pc_os_screen_observability_windows.go update_trust_v510.go
