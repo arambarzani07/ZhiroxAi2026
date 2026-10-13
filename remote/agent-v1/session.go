@@ -22,9 +22,10 @@ type SignalSink func(kind string, payload any) error
 type StatusSink func(state webrtc.PeerConnectionState)
 
 type Config struct {
-	ICEServers []webrtc.ICEServer
-	Signal     SignalSink
-	Status     StatusSink
+	ICEServers         []webrtc.ICEServer
+	ICETransportPolicy webrtc.ICETransportPolicy
+	Signal             SignalSink
+	Status             StatusSink
 }
 
 type AgentSession struct {
@@ -45,7 +46,10 @@ func NewAgentSession(cfg Config) (*AgentSession, error) {
 		return nil, err
 	}
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
-	pc, err := api.NewPeerConnection(webrtc.Configuration{ICEServers: cfg.ICEServers})
+	pc, err := api.NewPeerConnection(webrtc.Configuration{
+		ICEServers:         cfg.ICEServers,
+		ICETransportPolicy: cfg.ICETransportPolicy,
+	})
 	if err != nil {
 		return nil, err
 	}
