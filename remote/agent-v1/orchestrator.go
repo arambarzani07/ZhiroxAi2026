@@ -27,9 +27,14 @@ type RemoteSignaling interface {
 	PollSignals(ctx context.Context, sessionID string, after int64) ([]Signal, error)
 }
 
+type SessionIndicator interface {
+	Done() <-chan error
+	Stop() error
+}
+
 type RemoteConsent interface {
 	Approve(controllerLabel, controllerFingerprint string) (bool, error)
-	StartIndicator(controllerLabel string) (<-chan error, error)
+	StartIndicator(controllerLabel string) (SessionIndicator, error)
 }
 
 type ScreenPipeline interface {
@@ -141,7 +146,30 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 }
 
+func (o *Orchestrator) sessionDeadline(request PendingSession) (time.Time, error) {
+	deadline := time.Now().Add(o.cfg.MaxSession)
+	if strings.TrimSpace(request.ExpiresAt) == "" {
+		return time.Time{}, errors.New("remote session is missing server expiry")
+	}
+	serverExpiry, err := time.Parse(time.RFC3339Nano, request.ExpiresAt)
+	if err != nil {
+		return time.Time{}, errors.New("remote session server expiry is invalid")
+	}
+	if !serverExpiry.After(time.Now()) {
+		return time.Time{}, errors.New("remote session already expired")
+	}
+	if serverExpiry.Before(deadline) {
+		deadline = serverExpiry
+	}
+	return deadline, nil
+}
+
 func (o *Orchestrator) handleRequest(parent context.Context, request PendingSession) error {
+	deadline, err := o.sessionDeadline(request)
+	if err != nil {
+		_ = o.cfg.Signaling.Reject(parent, request.ID)
+		return err
+	}
 	approved, err := o.cfg.Consent.Approve(request.ControllerLabel, request.ControllerFingerprint)
 	if err != nil {
 		_ = o.cfg.Signaling.Reject(parent, request.ID)
@@ -150,11 +178,15 @@ func (o *Orchestrator) handleRequest(parent context.Context, request PendingSess
 	if !approved {
 		return o.cfg.Signaling.Reject(parent, request.ID)
 	}
+	if time.Now().After(deadline) {
+		_ = o.cfg.Signaling.Reject(parent, request.ID)
+		return errors.New("remote session expired during local approval")
+	}
 	if err := o.cfg.Signaling.Approve(parent, request.ID); err != nil {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(parent, o.cfg.MaxSession)
+	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 
 	connected := make(chan struct{}, 1)
@@ -185,13 +217,13 @@ func (o *Orchestrator) handleRequest(parent context.Context, request PendingSess
 	defer session.Close()
 
 	var (
-		cursor       int64
-		offerApplied bool
-		queuedICE    []webrtc.ICECandidateInit
-		activeOnce   sync.Once
-		pipeline     ScreenPipeline
-		pipelineDone chan error
+		cursor        int64
+		offerApplied  bool
+		queuedICE     []webrtc.ICECandidateInit
+		activeOnce    sync.Once
+		indicator     SessionIndicator
 		indicatorDone <-chan error
+		pipelineDone  <-chan error
 	)
 
 	startActive := func() error {
@@ -201,18 +233,26 @@ func (o *Orchestrator) handleRequest(parent context.Context, request PendingSess
 				startErr = err
 				return
 			}
-			indicatorDone, startErr = o.cfg.Consent.StartIndicator(request.ControllerLabel)
+			indicator, startErr = o.cfg.Consent.StartIndicator(request.ControllerLabel)
 			if startErr != nil {
 				return
 			}
-			pipeline, startErr = o.cfg.NewPipeline(session)
-			if startErr != nil {
+			indicatorDone = indicator.Done()
+			pipeline, err := o.cfg.NewPipeline(session)
+			if err != nil {
+				startErr = err
 				return
 			}
-			pipelineDone = make(chan error, 1)
+			done := make(chan error, 1)
+			pipelineDone = done
 			go func() {
-				pipelineDone <- pipeline.Run(ctx)
-				close(pipelineDone)
+				runErr := pipeline.Run(ctx)
+				closeErr := pipeline.Close()
+				if runErr == nil {
+					runErr = closeErr
+				}
+				done <- runErr
+				close(done)
 			}()
 		})
 		return startErr
@@ -220,14 +260,14 @@ func (o *Orchestrator) handleRequest(parent context.Context, request PendingSess
 
 	cleanup := func(reason string) {
 		cancel()
-		if pipeline != nil {
-			_ = pipeline.Close()
+		if indicator != nil {
+			_ = indicator.Stop()
 		}
 		_ = o.cfg.Signaling.PostSignal(parent, request.ID, "hangup", map[string]any{"reason": reason})
 	}
 	defer func() {
-		if pipeline != nil {
-			_ = pipeline.Close()
+		if indicator != nil {
+			_ = indicator.Stop()
 		}
 	}()
 
@@ -332,8 +372,8 @@ func (o *Orchestrator) handleRequest(parent context.Context, request PendingSess
 					}
 				case "hangup":
 					cancel()
-					if pipeline != nil {
-						_ = pipeline.Close()
+					if indicator != nil {
+						_ = indicator.Stop()
 					}
 					return nil
 				case "answer":
