@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - feature/v512-zero-touch-recovery
     paths:
       - '.github/workflows/build-v512-zero-touch.yml'
