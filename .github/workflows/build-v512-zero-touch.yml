@@ -84,10 +84,10 @@ jobs:
           grep -q 'const pcOSVersion = "5.1.2"' buildsrc/pc_os_v510.go
           grep -q 'pcOSZeroTouchWatchdogEnsureLoop' buildsrc/main.go
           grep -q 'pc_os_zero_touch_status' buildsrc/main.go
-          grep -q 'pcOSZeroTouchHeartbeatStaleAfter = 2 \* time.Minute' buildsrc/pc_os_watchdog_policy_v512.go
-          grep -q 'pcOSZeroTouchConfirmations       = 3' buildsrc/pc_os_watchdog_policy_v512.go
-          grep -q 'pcOSZeroTouchRestartCooldown     = 10 \* time.Minute' buildsrc/pc_os_watchdog_policy_v512.go
-          grep -q 'pcOSZeroTouchMaxRestartsPerWindow = 3' buildsrc/pc_os_watchdog_policy_v512.go
+          grep -Eq 'pcOSZeroTouchHeartbeatStaleAfter[[:space:]]*=[[:space:]]*2 \* time.Minute' buildsrc/pc_os_watchdog_policy_v512.go
+          grep -Eq 'pcOSZeroTouchConfirmations[[:space:]]*=[[:space:]]*3' buildsrc/pc_os_watchdog_policy_v512.go
+          grep -Eq 'pcOSZeroTouchRestartCooldown[[:space:]]*=[[:space:]]*10 \* time.Minute' buildsrc/pc_os_watchdog_policy_v512.go
+          grep -Eq 'pcOSZeroTouchMaxRestartsPerWindow[[:space:]]*=[[:space:]]*3' buildsrc/pc_os_watchdog_policy_v512.go
           grep -q 'windows_reboot_allowed' buildsrc/pc_os_watchdog_v512_windows.go
           grep -q 'external_recovery_command_allowed' buildsrc/pc_os_watchdog_v512_windows.go
           grep -q 'business_apps_mutated' buildsrc/pc_os_watchdog_v512_windows.go
