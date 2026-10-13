@@ -1,0 +1,115 @@
+name: Build Zhirox PC OS v5.1.3 Zero-Touch Fallback
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/v513-zero-touch-fallback
+    paths:
+      - '.github/workflows/build-v513-zero-touch.yml'
+      - 'tools/patch_v513.py'
+      - 'tools/patch_v512.py'
+      - 'src/pc_os_watchdog_v512_windows.go'
+      - 'src/pc_os_watchdog_policy_v512.go'
+      - 'src/pc_os_watchdog_policy_v512_test.go'
+      - 'release-gates/v5.1.1-next-public-key.hex'
+
+permissions:
+  contents: read
+
+jobs:
+  build-v513:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Zero-touch policy tests
+        run: |
+          set -euo pipefail
+          go test src/pc_os_watchdog_policy_v512.go src/pc_os_watchdog_policy_v512_test.go
+
+      - name: Restore and harden Supervisor through v5.1.3
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc channel-v513
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python3 tools/patch_v510.py
+          python3 tools/patch_trust_v510.py
+          python3 tools/patch_self_updater_v510.py
+          cp src/pc_os_recovery_v511_windows.go buildsrc/pc_os_recovery_v511_windows.go
+          python3 tools/patch_v511.py
+          cp src/pc_os_watchdog_policy_v512.go buildsrc/pc_os_watchdog_policy_v512.go
+          cp src/pc_os_watchdog_v512_windows.go buildsrc/pc_os_watchdog_v512_windows.go
+          python3 tools/patch_v512.py
+          python3 tools/patch_v513.py
+          NEXT="$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex | tr 'A-F' 'a-f')"
+          test "$NEXT" = '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
+          printf 'package main\n\nconst pcOSPinnedUpdatePublicKeyHex = "%s"\n' "$NEXT" > buildsrc/update_trust_v510.go
+          gofmt -w buildsrc/*.go
+
+      - name: v5.1.3 safety invariants
+        run: |
+          set -euo pipefail
+          grep -q '5.1.3' buildsrc/main.go
+          grep -q 'const pcOSVersion = "5.1.3"' buildsrc/pc_os_v510.go
+          grep -q 'ZhiroxZeroTouchWatchdog-v513' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'pcOSZeroTouchOpenVerifiedPeer' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'QueryFullProcessImageNameW' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'TerminateProcess(verified Supervisor peer)' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'verified_process_terminate_service_relaunch' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'verified_process_terminate_direct_relaunch' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'process_fallback_access_probe' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'business_apps_mutated' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'windows_reboot_allowed' buildsrc/pc_os_watchdog_v512_windows.go
+          grep -q 'external_recovery_command_allowed' buildsrc/pc_os_watchdog_v512_windows.go
+          if grep -Eqi 'cmd\.exe|powershell\.exe' buildsrc/pc_os_watchdog_v512_windows.go; then
+            echo 'Shell executable found in zero-touch recovery.' >&2
+            exit 1
+          fi
+          grep -q 'pcOSPinnedUpdatePublicKeyHex = "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143"' buildsrc/update_trust_v510.go
+
+      - name: Windows compile
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel-v513/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go update_trust_v510.go
+
+      - name: Unsigned signing request
+        run: |
+          set -euo pipefail
+          SHA=$(sha256sum channel-v513/ZhiroxAISupervisor.exe | awk '{print $1}')
+          SIZE=$(stat -c%s channel-v513/ZhiroxAISupervisor.exe)
+          KEY=$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex | tr 'A-F' 'a-f')
+          printf '%s\n' "$SHA" > channel-v513/ZhiroxAISupervisor.exe.sha256
+          printf '{"version":"5.1.3","from_version":"5.1.2","file":"ZhiroxAISupervisor.exe","sha256":"%s","size":%s,"algorithm":"Ed25519","signing_public_key_hex":"%s","zero_touch_recovery":true,"privilege_resilient_process_fallback":true,"publishable":false}\n' "$SHA" "$SIZE" "$KEY" > channel-v513/metadata.json
+          printf '{"canonical":"5.1.3|%s|%s","version":"5.1.3","sha256":"%s","size":%s,"signing_public_key_hex":"%s"}\n' "$SHA" "$SIZE" "$SHA" "$SIZE" "$KEY" > channel-v513/signing-request.json
+
+      - name: Upload v5.1.3 candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.3-${{ github.sha }}
+          path: channel-v513/*
+          if-no-files-found: error
