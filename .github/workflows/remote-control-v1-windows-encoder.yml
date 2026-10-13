@@ -1,0 +1,58 @@
+name: Remote Control v1 Windows Encoder
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-windows-encoder.yml'
+      - 'remote/encoder-mf-v1/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-windows-encoder.yml'
+      - 'remote/encoder-mf-v1/**'
+
+permissions:
+  contents: read
+
+jobs:
+  media-foundation-h264:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile Media Foundation H264 encoder DLL and probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual C++ toolchain not found' }
+          $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $dir = (Resolve-Path 'remote\encoder-mf-v1').Path
+          $cmd = '"' + $dev + '" -arch=x64 -host_arch=x64 && cd /d "' + $dir + '" && cl /nologo /std:c++17 /EHsc /LD encoder.cpp /Fe:ZhiroxMFH264Encoder.dll /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc probe.cpp /Fe:probe.exe'
+          cmd.exe /d /s /c $cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Real Windows H264 encode probe
+        working-directory: remote/encoder-mf-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\probe.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: DLL safety boundary scan
+        shell: pwsh
+        run: |
+          $text = Get-Content 'remote\encoder-mf-v1\encoder.cpp' -Raw
+          $forbidden = @('CreateProcess', 'ShellExecute', 'WinExec', 'PowerShell', 'cmd.exe', 'SendInput', 'OpenClipboard', 'SetClipboardData')
+          foreach ($needle in $forbidden) {
+            if ($text -match [regex]::Escape($needle)) { throw "Forbidden capability in encoder: $needle" }
+          }
+          if ($text -notmatch 'MFVideoFormat_NV12') { throw 'NV12 input invariant missing' }
+          if ($text -notmatch 'MFVideoFormat_H264') { throw 'H264 output invariant missing' }
+          if ($text -notmatch 'CODECAPI_AVLowLatencyMode') { throw 'low-latency invariant missing' }
