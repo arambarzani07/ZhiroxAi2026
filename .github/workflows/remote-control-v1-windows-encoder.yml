@@ -34,7 +34,7 @@ jobs:
           go-version: '1.24.x'
           cache: false
 
-      - name: Compile Media Foundation H264 encoder DLL and probe
+      - name: Compile Media Foundation H264 encoder DLL, diagnostic and probes
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -44,8 +44,16 @@ jobs:
           if (!$vs) { throw 'Visual C++ toolchain not found' }
           $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
           $dir = (Resolve-Path 'remote\encoder-mf-v1').Path
-          $cmd = '"' + $dev + '" -arch=x64 -host_arch=x64 && cd /d "' + $dir + '" && cl /nologo /std:c++17 /EHsc /LD encoder.cpp /Fe:ZhiroxMFH264Encoder.dll /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc probe.cpp /Fe:probe.exe'
+          $cmd = '"' + $dev + '" -arch=x64 -host_arch=x64 && cd /d "' + $dir + '" && cl /nologo /std:c++17 /EHsc /LD encoder.cpp /Fe:ZhiroxMFH264Encoder.dll /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc diagnose.cpp /Fe:diagnose.exe /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc probe.cpp /Fe:probe.exe'
           cmd.exe /d /s /c $cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Media Foundation H264 stage diagnostic
+        working-directory: remote/encoder-mf-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\diagnose.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Real Windows H264 encode probe
