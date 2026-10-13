@@ -1,0 +1,36 @@
+package main
+
+import (
+	"errors"
+	"strings"
+)
+
+const (
+	maxDisplayLabelChars = 120
+	maxFingerprintChars  = 160
+)
+
+func sanitizeDisplayText(v string, max int) string {
+	v = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, v)
+	v = strings.Join(strings.Fields(v), " ")
+	if max > 0 && len([]rune(v)) > max {
+		r := []rune(v)
+		v = string(r[:max])
+	}
+	return v
+}
+
+func validateMode(v string) (string, error) {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "approve", "indicator":
+		return v, nil
+	default:
+		return "", errors.New("unsupported consent-helper mode")
+	}
+}
