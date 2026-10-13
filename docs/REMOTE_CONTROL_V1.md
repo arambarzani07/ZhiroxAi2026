@@ -1,6 +1,6 @@
 # Zhirox Full Remote Control v1
 
-Status: **Phase 1/2 development — not production enabled**
+Status: **screen-only candidate development — not production enabled**
 
 Base: `main` / Zhirox PC OS v5.1.6
 
@@ -11,18 +11,37 @@ Build a TeamViewer/AnyDesk-class remote desktop path without weakening the exist
 The architecture separates three planes:
 
 1. **Control plane** — Supabase Edge Function creates/approves/expires sessions and relays only WebRTC signaling (offer/answer/ICE/hangup).
-2. **Media plane** — WebRTC peer connection carries the screen stream directly between controller and agent, with TURN fallback when direct ICE connectivity is unavailable.
-3. **Input plane** — WebRTC DataChannel will carry bounded mouse/keyboard events only after a separate reviewed release enables input injection.
+2. **Media plane** — WebRTC peer connection carries the H.264 screen stream directly between controller and agent, with TURN fallback when direct ICE connectivity is unavailable.
+3. **Input plane** — WebRTC DataChannel may carry bounded mouse/keyboard events only after a separate reviewed release enables input injection.
 
 Supabase must never proxy the live screen/video stream.
 
-## WebRTC implementation target
+## Verified implementation
 
-The remote-agent module pins `github.com/pion/webrtc/v4 v4.2.23` and uses Go 1.24 because this Pion release requires Go 1.24 or newer.
+The branch now contains and CI verifies the complete screen-only component path:
 
-The screen track is H.264 with an explicit WebRTC profile/packetization contract. The Windows production encoder target is the native Microsoft Media Foundation H.264 encoder (`Mfh264enc.dll`) rather than an external `ffmpeg` process. The encoder accepts formats including NV12/I420 and produces H.264. The existing v5.1.6 DIB desktop capture will feed a bounded color-conversion/Media Foundation encode path.
-
-The browser controller prefers H.264 during codec negotiation. WebRTC transports screen media over its encrypted media stack, while the control DataChannel remains non-operative for input in Phase 1/2.
+- Pion WebRTC v4.2.23 on Go 1.24.
+- H.264 WebRTC screen track with packetization-mode=1.
+- Native Windows Media Foundation H.264 encoder; no external ffmpeg process.
+- Reusable top-down 32-bit DIB desktop capture using `CreateDIBSection` + `BitBlt`.
+- Direct BGRA capture -> Media Foundation encode -> Pion H.264 track pipeline.
+- Bounded FPS (default 15, maximum 30), bitrate and keyframe cadence.
+- Fail-closed geometry/stride/buffer validation.
+- Real Windows H.264 encoder probe.
+- Direct-ICE Pion screen-track delivery test.
+- Credentialed relay-only TURN test path gated by runtime CI secrets/environment.
+- Browser screen-only controller with H.264 preference.
+- Agent signaling client for pending/approve/reject/active/offer/answer/ICE/hangup.
+- Consent-first agent lifecycle orchestration.
+- Active Windows interactive-session consent launched with `WTSQueryUserToken` + `CreateProcessAsUserW` onto `winsta0\\default`.
+- Consent helper and encoder DLL require absolute paths and SHA-256 pins.
+- Consent helper SHA is re-verified before every launch.
+- Local approval prompt hard-times out after the 2-minute server approval window.
+- Visible active-session indicator is explicitly bound to session lifetime and is terminated on controller hangup, timeout, agent shutdown or failure.
+- Local indicator close/OK provides emergency disconnect.
+- Server `expires_at` and local 30-minute maximum are both enforced; the earlier deadline wins.
+- Pre-offer ICE is bounded, duplicate offers fail closed, unsupported signal kinds fail closed.
+- Requested capabilities other than screen viewing are rejected before local consent.
 
 ## Phase 1 security policy
 
@@ -30,17 +49,16 @@ The browser controller prefers H.264 during codec negotiation. WebRTC transports
 - Every session requires attended approval on the target PC.
 - Approval expires after 2 minutes if not accepted.
 - Maximum session duration is 30 minutes.
-- Idle timeout is 5 minutes.
 - Maximum simultaneous controllers is 1.
 - A visible session indicator is mandatory.
 - An emergency local disconnect path is mandatory.
-- Every request/approval/rejection/connect/end event is audited.
+- Every request/approval/rejection/connect/end event is auditable.
 - Unattended access is disabled.
 - UAC/secure desktop control is disabled.
 - Signaling carries no screen/media frames.
-- Phase 1/2 allows only screen-stream capability negotiation.
+- Current candidate allows only screen-stream capability negotiation.
 - Mouse, keyboard, clipboard, file transfer and audio remain disabled.
-- No `cmd.exe`, PowerShell, keylogger, hidden capture or security bypass is part of this design.
+- No `SendInput`, `cmd.exe`, PowerShell, keylogger, hidden capture or security bypass is part of the current candidate.
 
 ## Session lifecycle
 
@@ -67,7 +85,7 @@ No terminal state can become active again. A new session must be created.
 
 Direct `anon` / `authenticated` access is revoked in the schema. The Edge Function accesses the tables only after custom controller/agent authentication.
 
-The signaling contract now includes:
+The signaling contract includes:
 - controller session request and status read
 - agent pending-request polling
 - attended approve/reject
@@ -76,7 +94,7 @@ The signaling contract now includes:
 
 ## Browser controller
 
-`remote/controller-v1` contains the screen-only WebRTC controller prototype.
+`remote/controller-v1` contains the screen-only WebRTC controller.
 
 - Controller credentials remain in memory only and are cleared on disconnect.
 - It waits for approval on the target PC before creating the WebRTC offer.
@@ -85,55 +103,53 @@ The signaling contract now includes:
 - It does not register keyboard/mouse input handlers.
 - It does not persist credentials to localStorage/sessionStorage.
 
-## Remote agent transport
+## Remote agent
 
-`remote/agent-v1` contains the Pion peer-connection transport.
+`remote/agent-v1` contains the Pion transport, Windows capture/encoder pipeline and consent-first orchestrator.
 
-- H.264 screen track
-- offer/answer and ICE support
-- TURN-capable ICE configuration
-- RTCP draining
-- screen access-unit writer
-- DataChannel present but incoming control messages intentionally ignored
+An isolated Windows candidate entrypoint is provided at `remote/agent-v1/cmd/zhirox-remote-screen` for controlled pre-production testing. It reads signaling/agent authentication and runtime paths from environment variables; credentials are never embedded into the binary or manifest.
 
-## Phase 2 remaining work — live screen encoding
+The candidate bundle workflow builds:
+- `ZhiroxRemoteScreenAgent.exe`
+- `ZhiroxRemoteConsent.exe`
+- `ZhiroxMFH264Encoder.dll`
+- SHA-256/size manifest with `publishable:false` and `production_enabled:false`
 
-- Connect the already-tested v5.1.6 interactive DIB capture to a bounded frame pipeline.
-- Convert captured BGRA/RGBA frames to an input format accepted by the Media Foundation H.264 encoder, preferably NV12.
-- Configure low-latency H.264 output, bounded resolution/FPS/bitrate, frequent IDR frames and packetization compatible with the Pion H.264 track.
-- Add a visible local approval/session indicator and emergency disconnect implementation.
-- Bind the agent to pending-session polling and signaling endpoints.
-- Run real-Windows H.264 screen-stream, reconnect and TURN tests.
+## Current CI gates
 
-## Phase 3 — explicit input control
+Verified gates include:
 
-Only after Phase 2 passes:
+1. Go policy/protocol/orchestrator tests.
+2. Pion transport tests and `go vet`.
+3. Browser-controller syntax/security invariants.
+4. Deno signaling type-check.
+5. Windows Media Foundation encoder compile and real encode probe.
+6. SHA-pinned Go -> encoder DLL bridge.
+7. Reusable Windows DIB capture compile/vet checks.
+8. Capture -> H.264 -> WebRTC pipeline tests.
+9. Direct-ICE H.264 RTP delivery test.
+10. Visible consent-helper build/policy tests.
+11. Interactive-session consent launcher and fail-closed lifecycle compile/tests.
 
-- Mouse move/click/wheel.
-- Keyboard key down/up and approved shortcuts.
-- Rate limits, anti-replay sequencing and strict event schema.
-- Local emergency disconnect immediately disables input.
-- Secure desktop/UAC remains outside scope unless a separate explicit design is reviewed.
+## Remaining pre-production gates
 
-The input event protocol is already modeled and tested, but `pcOSRemoteInputRuntimeEnabled` remains `false` and no Windows input-injection API exists in this branch.
+The following are intentionally not claimed complete yet:
 
-## Phase 4 — optional capabilities
+1. Build and verify the immutable screen-only candidate bundle from the exact reviewed source commit.
+2. Deploy the remote signaling schema/function to an isolated/canary control plane and run Supabase security/advisor checks.
+3. Run a real browser -> real target Windows screen-stream session using the candidate binaries.
+4. Run the same real session with credentialed TURN forced (`relay` policy), not merely direct ICE.
+5. Verify controller hangup, local emergency disconnect, approval expiry, 30-minute/server expiry and reconnect/failure behavior on the real target.
+6. Produce a separately reviewed signed production candidate under the current Ed25519 trust anchor; do not replace or mutate the promoted v5.1.6 artifact.
+7. Pass the existing update health/rollback gate.
+8. Controlled screen-only rollout followed by live audit.
 
-Clipboard, file transfer, multi-monitor, and audio are separate capability gates. None are implicitly enabled by remote desktop access.
+## Explicit input-control phase
 
-## Production gate
+Mouse and keyboard are a later, separately reviewed capability gate. The input event protocol is modeled and tested, but `pcOSRemoteInputRuntimeEnabled` remains `false`, the current agent does not execute DataChannel control messages, and no Windows input-injection API exists in this branch.
 
-Do not merge or deploy remote-control runtime merely because foundation CI passes. Production enablement requires:
+Clipboard, file transfer, multi-monitor expansion and audio are also separate capability gates and are not implicitly enabled by screen viewing.
 
-1. Go policy/protocol tests PASS.
-2. Pion transport tests/vet PASS.
-3. Browser-controller syntax/security invariants PASS.
-4. Deno signaling type-check PASS.
-5. Database migration review and Supabase advisor checks.
-6. Real Windows H.264 screen-stream test.
-7. Local approval UX/indicator/emergency disconnect test.
-8. TURN fallback test.
-9. Session-expiry and reconnect tests.
-10. Signed Windows artifact under the current Ed25519 trust anchor.
-11. Existing update health/rollback gate PASS.
-12. Controlled rollout followed by live audit.
+## Production rule
+
+Do not merge, sign for production, promote or deploy this remote-control runtime merely because component CI passes. The current candidate is screen-viewing only, attended, visible and non-publishable until the remaining real-target and release-security gates pass.
