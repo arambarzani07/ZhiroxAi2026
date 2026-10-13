@@ -29,7 +29,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version: '1.24.x'
+          cache: false
 
       - uses: denoland/setup-deno@v2
         with:
@@ -44,9 +45,10 @@ jobs:
         working-directory: remote/agent-v1
         run: |
           set -euo pipefail
-          go mod download
+          go mod tidy
           go test ./...
           go vet ./...
+          git diff --exit-code -- go.mod
 
       - name: Signaling type check
         run: |
@@ -69,8 +71,10 @@ jobs:
           grep -q 'pcOSRemoteInputRuntimeEnabled = false' src/pc_os_remote_input_v1.go
           grep -q 'input_control_enabled:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
           grep -q 'media_proxy:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q '^go 1.24' remote/agent-v1/go.mod
           grep -q 'github.com/pion/webrtc/v4 v4.2.23' remote/agent-v1/go.mod
-          grep -q 'webrtc.MimeTypeVP8' remote/agent-v1/session.go
+          grep -q 'webrtc.MimeTypeH264' remote/agent-v1/session.go
+          grep -q 'packetization-mode=1' remote/agent-v1/session.go
           if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|mouse_event|keybd_event|OpenClipboard|SetClipboardData' src/pc_os_remote_control_v1.go src/pc_os_remote_input_v1.go remote/agent-v1/session.go ops/supabase/zhirox-pc-remote-signaling-v1.ts; then
             echo 'Phase 1/2 foundation must not contain input injection or shell execution.' >&2
             exit 1
