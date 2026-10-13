@@ -8,6 +8,8 @@ on:
       - '.github/workflows/remote-control-v1-foundation.yml'
       - 'src/pc_os_remote_control_v1.go'
       - 'src/pc_os_remote_control_v1_test.go'
+      - 'src/pc_os_remote_input_v1.go'
+      - 'src/pc_os_remote_input_v1_test.go'
       - 'ops/supabase/remote_control_v1_schema.sql'
       - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
       - 'docs/REMOTE_CONTROL_V1.md'
@@ -32,10 +34,10 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Go policy tests
+      - name: Go policy and protocol tests
         run: |
           set -euo pipefail
-          go test src/pc_os_remote_control_v1.go src/pc_os_remote_control_v1_test.go
+          go test src/pc_os_remote_control_v1.go src/pc_os_remote_control_v1_test.go src/pc_os_remote_input_v1.go src/pc_os_remote_input_v1_test.go
 
       - name: Signaling type check
         run: |
@@ -55,9 +57,10 @@ jobs:
           grep -q 'Keyboard:[[:space:]]*false' src/pc_os_remote_control_v1.go
           grep -q 'Clipboard:[[:space:]]*false' src/pc_os_remote_control_v1.go
           grep -q 'FileTransfer:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'pcOSRemoteInputRuntimeEnabled = false' src/pc_os_remote_input_v1.go
           grep -q 'input_control_enabled:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
           grep -q 'media_proxy:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
-          if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|mouse_event|keybd_event|OpenClipboard|SetClipboardData' src/pc_os_remote_control_v1.go ops/supabase/zhirox-pc-remote-signaling-v1.ts; then
+          if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|mouse_event|keybd_event|OpenClipboard|SetClipboardData' src/pc_os_remote_control_v1.go src/pc_os_remote_input_v1.go ops/supabase/zhirox-pc-remote-signaling-v1.ts; then
             echo 'Phase 1 must not contain input injection or shell execution.' >&2
             exit 1
           fi
