@@ -53,7 +53,10 @@ func NewWindowsOrchestrator(cfg WindowsOrchestratorConfig) (*Orchestrator, error
 			})
 		},
 		NewPipeline: func(session *AgentSession) (ScreenPipeline, error) {
-			return NewWindowsScreenPipeline(
+			// The service-side agent owns auth/signaling/WebRTC only. Desktop
+			// capture and Media Foundation encoding run in a separately launched,
+			// media-only process on the signed-in user's interactive desktop.
+			return NewInteractiveWindowsScreenPipeline(
 				session,
 				cfg.EncoderDLLPath,
 				cfg.EncoderDLLSHA256,
