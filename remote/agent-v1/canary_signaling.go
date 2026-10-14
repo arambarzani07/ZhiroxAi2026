@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type CanarySignalingClient struct {
@@ -27,7 +28,7 @@ type CanaryRegistration struct {
 func RegisterCanarySignaling(ctx context.Context, baseURL, pairingCode, agentLabel string, client *http.Client) (*CanarySignalingClient, CanaryRegistration, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	u, err := url.Parse(baseURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
 		return nil, CanaryRegistration{}, errors.New("canary signaling base url must be an absolute https URL")
 	}
 	pairingHash, err := CanaryPairingHash(pairingCode)
@@ -79,9 +80,9 @@ func RegisterCanarySignaling(ctx context.Context, baseURL, pairingCode, agentLab
 		return nil, CanaryRegistration{}, canaryHTTPError(resp.StatusCode, data)
 	}
 	var reply struct {
-		PairingID  string `json:"pairing_id"`
+		PairingID   string `json:"pairing_id"`
 		AgentTicket string `json:"agent_ticket"`
-		ExpiresAt  string `json:"expires_at"`
+		ExpiresAt   string `json:"expires_at"`
 	}
 	if err := json.Unmarshal(data, &reply); err != nil {
 		return nil, CanaryRegistration{}, errors.New("invalid canary registration response")
@@ -92,16 +93,21 @@ func RegisterCanarySignaling(ctx context.Context, baseURL, pairingCode, agentLab
 	if strings.TrimSpace(reply.AgentTicket) == "" || len(reply.AgentTicket) > 4096 {
 		return nil, CanaryRegistration{}, errors.New("canary registration returned invalid agent ticket")
 	}
-	if strings.TrimSpace(reply.ExpiresAt) == "" {
-		return nil, CanaryRegistration{}, errors.New("canary registration returned no expiry")
+	expiresAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(reply.ExpiresAt))
+	if err != nil {
+		return nil, CanaryRegistration{}, errors.New("canary registration returned invalid expiry")
+	}
+	now := time.Now()
+	if !expiresAt.After(now) || expiresAt.After(now.Add(CanaryPairingTTL+10*time.Second)) {
+		return nil, CanaryRegistration{}, errors.New("canary registration expiry is outside local pairing policy")
 	}
 	c := &CanarySignalingClient{
-		baseURL: baseURL,
+		baseURL:   baseURL,
 		pairingID: reply.PairingID,
-		ticket: reply.AgentTicket,
-		http: client,
+		ticket:    reply.AgentTicket,
+		http:      client,
 	}
-	return c, CanaryRegistration{PairingID: reply.PairingID, ExpiresAt: reply.ExpiresAt}, nil
+	return c, CanaryRegistration{PairingID: reply.PairingID, ExpiresAt: expiresAt.UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func readBoundedCanaryBody(r io.Reader) ([]byte, error) {
@@ -175,6 +181,9 @@ func (c *CanarySignalingClient) Pending(ctx context.Context) ([]PendingSession, 
 	path := "/api/canary/agent/pairings/" + url.PathEscape(c.pairingID) + "/pending"
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &reply); err != nil {
 		return nil, err
+	}
+	if len(reply.Sessions) > 1 {
+		return nil, errors.New("canary server returned more than one pending controller")
 	}
 	return reply.Sessions, nil
 }
