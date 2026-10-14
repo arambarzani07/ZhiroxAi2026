@@ -4,6 +4,7 @@
 
 create table if not exists public.pc_remote_controller_tokens (
   token_hash text primary key,
+  agent_id text not null references public.pc_relay_agents(agent_id) on delete cascade,
   label text not null default 'remote-controller',
   allow_screen_stream boolean not null default true,
   created_at timestamptz not null default now(),
@@ -19,7 +20,7 @@ create table if not exists public.pc_remote_controller_tokens (
 );
 
 create index if not exists pc_remote_controller_tokens_active_idx
-  on public.pc_remote_controller_tokens(expires_at)
+  on public.pc_remote_controller_tokens(agent_id, expires_at)
   where revoked_at is null and allow_screen_stream;
 
 create table if not exists public.pc_remote_sessions (
