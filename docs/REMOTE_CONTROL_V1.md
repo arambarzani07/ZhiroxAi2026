@@ -1,165 +1,169 @@
 # Zhirox Full Remote Control v1
 
-Status: **screen-only candidate built and CI-verified — not production enabled**
+Status: **hardened screen-only candidate built and CI-verified — not production enabled**
 
 Base: `main` / Zhirox PC OS v5.1.6
 
-Verified candidate source commit: `c8c0372fffb4aefe97cdb32318dfa8dcf8ccff54`
+## Verified candidate provenance
+
+Runtime candidate source commit: `1a5ea351576ef2c4c20e53ad80148788bd45573f`
 
 GitHub Actions candidate artifact:
-- name: `Zhirox-Remote-Control-v1-screen-only-c8c0372fffb4aefe97cdb32318dfa8dcf8ccff54`
-- artifact digest: `sha256:62209ac080261f050105521def8b238bd5021d5ca04d9fe166e35bfbc6b351e2`
-- artifact size: `5,208,289` bytes
+- workflow run: `38519547860`
+- artifact id: `11866050037`
+- name: `Zhirox-Remote-Control-v1-screen-only-1a5ea351576ef2c4c20e53ad80148788bd45573f`
+- size: `5,270,372` bytes
+- artifact digest: `sha256:8db27f233d81247d213a7a3782476c4643205fc7af5990909c355253cfedeb34`
 - manifest remains `publishable:false` and `production_enabled:false`
 
-## Goal
+Current PR head `0a1c99df6c84c1dace8467ccc92034acb7822c4a` changes only CI workflow files after the runtime candidate commit; runtime source is unchanged from the verified candidate.
 
-Build a TeamViewer/AnyDesk-class remote desktop path without weakening the existing signed-update, watchdog, rollback, and audit boundaries.
+## Architecture
 
-The architecture separates three planes:
+1. **Control plane** — Supabase Edge Function handles bounded WebRTC signaling only.
+2. **Media plane** — Pion WebRTC carries the H.264 screen stream peer-to-peer, with TURN fallback supported by configuration.
+3. **Interactive capture plane** — service-side auth/signaling/WebRTC remains outside the signed-in user desktop; a separate media-only helper is launched into the active interactive Windows session and returns bounded H.264 access units through one inherited anonymous pipe.
+4. **Input plane** — disabled. Mouse/keyboard injection is not present in this candidate.
 
-1. **Control plane** — Supabase Edge Function creates/approves/expires sessions and relays only WebRTC signaling (offer/answer/ICE/hangup).
-2. **Media plane** — WebRTC peer connection carries the H.264 screen stream directly between controller and agent, with TURN fallback when direct ICE connectivity is unavailable.
-3. **Input plane** — WebRTC DataChannel may carry bounded mouse/keyboard events only after a separate reviewed release enables input injection.
+Supabase never proxies live screen/video frames.
 
-Supabase must never proxy the live screen/video stream.
+## Security policy
 
-## Verified implementation
-
-The branch now contains and CI verifies the complete screen-only component path:
-
-- Pion WebRTC v4.2.23 on Go 1.24.
-- H.264 WebRTC screen track with packetization-mode=1.
-- Native Windows Media Foundation H.264 encoder; no external ffmpeg process.
-- Reusable top-down 32-bit DIB desktop capture using `CreateDIBSection` + `BitBlt`.
-- Direct BGRA capture -> Media Foundation encode -> Pion H.264 track pipeline.
-- Bounded FPS (default 15, maximum 30), bitrate and keyframe cadence.
-- Fail-closed geometry/stride/buffer validation.
-- Real Windows H.264 encoder probe.
-- Direct-ICE Pion screen-track delivery test.
-- Credentialed relay-only TURN test path gated by runtime CI secrets/environment.
-- Browser screen-only controller with H.264 preference.
-- Agent signaling client for pending/approve/reject/active/offer/answer/ICE/hangup.
-- Consent-first agent lifecycle orchestration.
-- Active Windows interactive-session consent launched with `WTSQueryUserToken` + `CreateProcessAsUserW` onto `winsta0\\default`.
-- Consent helper and encoder DLL require absolute paths and SHA-256 pins.
-- Consent helper SHA is re-verified before every launch.
-- Local approval prompt hard-times out after the 2-minute server approval window.
-- Visible active-session indicator is explicitly bound to session lifetime and is terminated on controller hangup, timeout, agent shutdown or failure.
-- Local indicator close/OK provides emergency disconnect.
-- Server `expires_at` and local 30-minute maximum are both enforced; the earlier deadline wins.
-- Pre-offer ICE is bounded, duplicate offers fail closed, unsupported signal kinds fail closed.
-- Requested capabilities other than screen viewing are rejected before local consent.
-
-## Phase 1 security policy
-
-- Remote control defaults to disabled.
+- Remote control defaults disabled.
 - Every session requires attended approval on the target PC.
-- Approval expires after 2 minutes if not accepted.
+- Approval expires after 2 minutes.
 - Maximum session duration is 30 minutes.
 - Maximum simultaneous controllers is 1.
-- A visible session indicator is mandatory.
-- An emergency local disconnect path is mandatory.
-- Every request/approval/rejection/connect/end event is auditable.
+- Visible session indicator is mandatory.
+- Local emergency disconnect is mandatory.
 - Unattended access is disabled.
-- UAC/secure desktop control is disabled.
-- Signaling carries no screen/media frames.
-- Current candidate allows only screen-stream capability negotiation.
-- Mouse, keyboard, clipboard, file transfer and audio remain disabled.
-- No `SendInput`, `cmd.exe`, PowerShell, keylogger, hidden capture or security bypass is part of the current candidate.
+- UAC/secure-desktop control is disabled.
+- Signaling does not carry media frames.
+- Current capability is screen-stream only.
+- Mouse, keyboard, clipboard, file transfer and audio are disabled.
+- No `SendInput`, shell, PowerShell, `cmd.exe`, keylogger, stealth capture or security bypass is enabled.
+- Screen-only v1 does **not** claim a server-side idle timeout; media is direct WebRTC, so `idle_timeout_seconds=0` until an explicit reviewed end-to-end activity signal exists.
 
-## Session lifecycle
+## Dedicated controller authorization
 
-`requested -> approved -> connecting -> active -> ended`
+Remote-control browser sessions no longer reuse generic relay connector tokens.
 
-Alternative terminal states:
+`pc_remote_controller_tokens` provides dedicated, short-lived controller authorization:
+- token stored as SHA-256 only;
+- token is bound to exactly one `agent_id`;
+- screen-stream permission is explicit;
+- maximum token TTL is 24 hours;
+- revoked/expired tokens fail closed.
 
-- `requested -> rejected`
-- any non-terminal state -> `expired`
+PostgreSQL also enforces controller-agent scope with a composite foreign key, so a token for PC-A cannot create a session for PC-B even if an application-layer regression occurs.
 
-No terminal state can become active again. A new session must be created.
+## Database defense in depth
 
-## Control plane
+The remote-control schema includes:
+- `pc_remote_controller_tokens`
+- `pc_remote_sessions`
+- `pc_remote_signals`
+- `pc_remote_audit`
 
-`pc_remote_sessions`
-- session identity, agent, state, approval timestamps, expiry and approved capabilities.
-- controller token is stored only as a SHA-256 hash.
+Controls include:
+- RLS enabled on all remote tables;
+- no direct client RLS policies;
+- `anon` and `authenticated` privileges revoked;
+- one live session per agent via partial unique index;
+- 30-minute session TTL constraint;
+- screen-only capability constraints in PostgreSQL;
+- signal JSON payload capped at 256 KiB;
+- audit metadata bounded;
+- controller token TTL capped at 24 hours;
+- cross-agent token/session binding enforced in PostgreSQL.
 
-`pc_remote_signals`
-- bounded SDP/ICE signaling records only.
+The schema is **not deployed in production**. It was executed successfully in an isolated PostgreSQL 17 GitHub Actions service, including executable tests for RLS/revokes, one-live-session, cross-agent scope, capability refusal and token TTL.
 
-`pc_remote_audit`
-- session security events for operational review.
+## Signaling hardening
 
-Direct `anon` / `authenticated` access is revoked in the schema. The Edge Function accesses the tables only after custom controller/agent authentication.
+The Edge Function candidate:
+- pins `@supabase/supabase-js` to an exact version;
+- uses a configured exact browser Origin allowlist;
+- native-agent requests without browser Origin remain supported;
+- rejects oversized request bodies;
+- validates screen-only capabilities;
+- authenticates dedicated agent-scoped controller tokens;
+- reuses existing agent relay authentication;
+- checks target agent freshness and health;
+- expires stale approval/session rows;
+- uses conditional state transitions;
+- emits opaque HTTP 500 responses with request IDs rather than database details;
+- uses `Cache-Control: no-store` and browser hardening headers.
 
-The signaling contract includes:
-- controller session request and status read
-- agent pending-request polling
-- attended approve/reject
-- agent active-state confirmation
-- controller/agent offer, answer, ICE and hangup exchange
+## Credential transport
 
-## Browser controller
+The standalone service-side remote agent refuses secret-bearing environment configuration.
 
-`remote/controller-v1` contains the screen-only WebRTC controller.
+Agent secret and TURN credentials are supplied only through a bounded anonymous-pipe/stdin bootstrap:
+- maximum bootstrap size 64 KiB;
+- unknown JSON fields are rejected;
+- only STUN/STUNS/TURN/TURNS ICE schemes are allowed;
+- TURN relay-only mode requires an ICE/TURN server;
+- secret-bearing environment variables are explicitly refused.
 
-- Controller credentials remain in memory only and are cleared on disconnect.
-- It waits for approval on the target PC before creating the WebRTC offer.
-- It prefers H.264 and displays the received screen track.
-- It accepts ICE/TURN configuration supplied for the session.
-- It does not register keyboard/mouse input handlers.
-- It does not persist credentials to localStorage/sessionStorage.
+A sanitized source audit verified that the existing v5.1.6 Supervisor loads relay credentials locally with `pcOSLoadRelayCredentials()` and keeps them in memory for relay requests. The credential-audit workflow passed without printing secret values.
 
-## Remote agent
+## Interactive capture isolation
 
-`remote/agent-v1` contains the Pion transport, Windows capture/encoder pipeline and consent-first orchestrator.
+Direct service/Session-0 desktop capture is not used by the Windows orchestrator.
 
-An isolated Windows candidate entrypoint is provided at `remote/agent-v1/cmd/zhirox-remote-screen` for controlled pre-production testing. It reads signaling/agent authentication and runtime paths from environment variables; credentials are never embedded into the binary or manifest.
+`ZhiroxRemoteScreenAgent.exe` launches the same SHA-pinned executable into the active signed-in Windows session in media-only helper mode:
+- WTS active-console token;
+- `CreateProcessAsUserW` on `winsta0\default`;
+- explicit `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` limits inherited handles to the H.264 pipe;
+- `CreateEnvironmentBlock` creates the signed-in user's environment instead of inheriting the service environment;
+- executable SHA-256 is reverified immediately before launch;
+- helper accepts only pipe handle, encoder path/hash, FPS and bitrate;
+- helper has no signaling URL, agent secret, controller token or TURN credential;
+- helper has no input/clipboard/file-transfer capability.
 
-The candidate bundle contains:
-- `ZhiroxRemoteScreenAgent.exe`
-- `ZhiroxRemoteConsent.exe`
-- `ZhiroxMFH264Encoder.dll`
-- SHA-256/size manifest with `publishable:false` and `production_enabled:false`
+Local media protocol:
+- magic/version `ZHXH2641`;
+- bounded width/height/FPS header;
+- length-prefixed H.264 access units;
+- 4 MiB maximum access unit;
+- invalid magic/geometry/FPS/length fails before unsafe allocation.
 
-## Current CI gates
+## Verified media path
 
-Verified gates include:
+- reusable top-down 32-bit DIB capture using `CreateDIBSection` + `BitBlt`;
+- BGRA -> Media Foundation H.264;
+- bounded FPS, bitrate and keyframe cadence;
+- Pion H.264 WebRTC track with packetization-mode=1;
+- real Windows encoder probe passed;
+- direct-ICE H.264 RTP delivery test passed;
+- consent helper build and Windows compile/vet passed;
+- interactive-helper isolation candidate build passed.
 
-1. Go policy/protocol/orchestrator tests.
-2. Pion transport tests and `go vet`.
-3. Browser-controller syntax/security invariants.
-4. Deno signaling type-check.
-5. Windows Media Foundation encoder compile and real encode probe.
-6. SHA-pinned Go -> encoder DLL bridge.
-7. Reusable Windows DIB capture compile/vet checks.
-8. Capture -> H.264 -> WebRTC pipeline tests.
-9. Direct-ICE H.264 RTP delivery test.
-10. Visible consent-helper build/policy tests.
-11. Interactive-session consent launcher and fail-closed lifecycle compile/tests.
-12. Exact-head immutable candidate bundle build and artifact digest verification.
+Credentialed forced-TURN relay has **not** yet been verified and must not be reported as passed.
 
-The real Windows encoder probe produced `30,072` bytes of Annex-B H.264 during the verified candidate build. Direct ICE passed. Credentialed TURN remained skipped because TURN credentials were not configured in that GitHub Actions run.
+## Current production gates
 
-## Remaining pre-production gates
+Production remains unchanged at Zhirox v5.1.6. The remote-control control-plane tables/function are not deployed.
 
-The following are intentionally not claimed complete yet:
+Latest live-PC preflight showed:
+- version: `5.1.6`
+- health score: `85`
+- alert: `disk_low`
+- C: free space: approximately `15.97 GB` / `14.97%`
 
-1. Deploy the remote signaling schema/function to an isolated/canary control plane and run Supabase security/advisor checks.
-2. Run a real browser -> real target Windows screen-stream session using the verified candidate binaries.
-3. Run the same real session with credentialed TURN forced (`relay` policy), not merely direct ICE.
-4. Verify controller hangup, local emergency disconnect, approval expiry, 30-minute/server expiry and reconnect/failure behavior on the real target.
-5. Produce a separately reviewed signed production candidate under the current Ed25519 trust anchor; do not replace or mutate the promoted v5.1.6 artifact.
-6. Pass the existing update health/rollback gate.
-7. Controlled screen-only rollout followed by live audit.
+Therefore remote-control deployment/signing/promotion is fail-closed until the PC health/disk gate is restored.
 
-## Explicit input-control phase
+No Supabase preview branch has been created. Creating a Supabase branch may incur resource cost, so branch creation requires an explicit cost-approved gate.
 
-Mouse and keyboard are a later, separately reviewed capability gate. The input event protocol is modeled and tested, but `pcOSRemoteInputRuntimeEnabled` remains `false`, the current agent does not execute DataChannel control messages, and no Windows input-injection API exists in this branch.
+## Remaining gates before production
 
-Clipboard, file transfer, multi-monitor expansion and audio are also separate capability gates and are not implicitly enabled by screen viewing.
-
-## Production rule
-
-Do not merge, sign for production, promote or deploy this remote-control runtime merely because component CI passes. The current candidate is screen-viewing only, attended, visible and non-publishable until the remaining real-target and release-security gates pass.
+1. Restore live PC disk/health gate.
+2. Obtain an explicitly approved isolated Supabase branch/project and deploy the hardened schema/signaling function there.
+3. Run Supabase security/performance advisors on that isolated deployment.
+4. Run a real browser -> real target Windows attended screen-stream session using the verified candidate runtime.
+5. Run credentialed forced-TURN relay testing.
+6. Verify controller hangup, local emergency disconnect, approval expiry, session expiry, failure and reconnect behavior on the real target.
+7. Build a new immutable production release identity (do not replace v5.1.6), sign under the current Ed25519 trust anchor and pass existing updater/rollback health gates.
+8. Controlled screen-only rollout followed by live audit.
+9. Only after screen-only stability: separately reviewed mouse/keyboard input-control phase.
