@@ -7,9 +7,13 @@ on:
       - feature/full-remote-control-v1
     paths:
       - '.github/workflows/remote-control-v1-candidate.yml'
+      - '.github/workflows/remote-control-v1-credential-audit.yml'
       - 'remote/agent-v1/**'
       - 'remote/consent-v1/**'
       - 'remote/encoder-mf-v1/**'
+      - 'remote/controller-v1/**'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+      - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
       - 'src/pc_os_remote_control_v1.go'
       - 'src/pc_os_remote_input_v1.go'
       - 'tools/patch_remote_mf_startup_v1.py'
@@ -18,9 +22,13 @@ on:
       - main
     paths:
       - '.github/workflows/remote-control-v1-candidate.yml'
+      - '.github/workflows/remote-control-v1-credential-audit.yml'
       - 'remote/agent-v1/**'
       - 'remote/consent-v1/**'
       - 'remote/encoder-mf-v1/**'
+      - 'remote/controller-v1/**'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+      - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
       - 'src/pc_os_remote_control_v1.go'
       - 'src/pc_os_remote_input_v1.go'
       - 'tools/patch_remote_mf_startup_v1.py'
@@ -77,7 +85,7 @@ jobs:
           $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
           $env:ZHIROX_MF_ENCODER_DLL = $dll
           $env:ZHIROX_MF_ENCODER_SHA256 = $sha
-          go test -v .
+          go test -v ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -94,6 +102,7 @@ jobs:
           $inputPolicy = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
           $orchestrator = Get-Content 'remote\agent-v1\orchestrator.go' -Raw
           $entry = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\main_windows.go' -Raw
+          $bootstrap = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\bootstrap_windows.go' -Raw
           $consent = Get-Content 'remote\consent-v1\main_windows.go' -Raw
           if ($policy -notmatch 'Enabled:\s+false') { throw 'remote control must remain disabled by default' }
           if ($policy -notmatch 'AttendedApprovalRequired:\s+true') { throw 'attended approval invariant missing' }
@@ -101,8 +110,12 @@ jobs:
           if ($inputPolicy -notmatch 'pcOSRemoteInputRuntimeEnabled\s*=\s*false') { throw 'remote input runtime must remain disabled' }
           if ($orchestrator -notmatch 'screenOnlyCapabilities') { throw 'screen-only capability gate missing' }
           if ($orchestrator -notmatch 'MaxRemoteSessionDuration\s*=\s*30 \* time.Minute') { throw '30-minute session limit missing' }
-          if ($entry -match 'fmt\.Print.*AGENT_SECRET|log\.Print.*AGENT_SECRET') { throw 'candidate must never log the agent secret' }
-          if ($entry -notmatch 'ZHIROX_AGENT_SECRET') { throw 'candidate agent auth binding missing' }
+          if ($entry -match 'requiredEnv\("ZHIROX_AGENT_SECRET"\)') { throw 'agent secret must not be loaded from environment' }
+          if ($entry -match 'requiredEnv\("ZHIROX_REMOTE_ICE_SERVERS_JSON"\)') { throw 'TURN/ICE credentials must not be loaded from environment' }
+          if ($entry -notmatch 'secret-bearing environment configuration is refused') { throw 'legacy secret environment refusal is missing' }
+          if ($entry -notmatch 'secure bootstrap stdin mode is required') { throw 'secure stdin bootstrap gate is missing' }
+          if ($bootstrap -notmatch 'DisallowUnknownFields') { throw 'bootstrap must reject unknown fields' }
+          if ($bootstrap -notmatch 'maxBootstrapBytes\s*=\s*64 \* 1024') { throw 'bootstrap size limit missing' }
           if ($consent -notmatch 'Allow this screen-viewing session') { throw 'visible attended approval wording missing' }
           $forbidden = @('SendInput', 'mouse_event', 'keybd_event', 'OpenClipboard', 'SetClipboardData', 'CreateProcessWithToken')
           foreach ($needle in $forbidden) {
@@ -149,6 +162,9 @@ jobs:
             audio = $false
             uac_secure_desktop_control = $false
             max_session_minutes = 30
+            credential_transport = 'anonymous_pipe_stdin'
+            secret_environment_allowed = $false
+            turn_credentials_environment_allowed = $false
             artifacts = $artifacts
           }
           $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 'remote-candidate\manifest.json'
@@ -162,6 +178,8 @@ jobs:
           if ($manifest.publishable -ne $false -or $manifest.production_enabled -ne $false) { throw 'candidate bundle must remain non-publishable' }
           if ($manifest.source_commit -ne '${{ github.sha }}') { throw 'candidate source commit provenance mismatch' }
           if ($manifest.source_repository -ne '${{ github.repository }}') { throw 'candidate repository provenance mismatch' }
+          if ($manifest.credential_transport -ne 'anonymous_pipe_stdin') { throw 'candidate credential transport must be pipe-only' }
+          if ($manifest.secret_environment_allowed -ne $false -or $manifest.turn_credentials_environment_allowed -ne $false) { throw 'candidate must refuse secret-bearing environment config' }
           foreach ($artifact in $manifest.artifacts) {
             $path = Join-Path 'remote-candidate' $artifact.file
             if (!(Test-Path $path)) { throw "Missing candidate artifact $($artifact.file)" }
