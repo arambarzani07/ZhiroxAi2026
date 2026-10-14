@@ -66,6 +66,26 @@ func showMessage(title, body string, flags uintptr) (int, error) {
 	return int(ret), nil
 }
 
+func runPairing() int {
+	code := sanitizePairingCode(decodedDisplayArg("--pairing-code-b64=", "--pairing-code="))
+	if code == "" {
+		return 32
+	}
+	body := fmt.Sprintf(
+		"CANARY / SCREEN ONLY\r\n\r\nPairing code:\r\n\r\n%s\r\n\r\nEnter this one-time code in the controller browser. The code expires quickly and does not grant control by itself. A separate Yes/No approval will still be required before screen viewing starts.\r\n\r\nMouse and keyboard control are disabled.\r\n\r\nClick OK (or close this window) to cancel pairing.",
+		code,
+	)
+	_, err := showMessage(
+		"Zhirox Remote Canary Pairing",
+		body,
+		mbOK|mbIconWarning|mbSetForeground|mbTopMost,
+	)
+	if err != nil {
+		return 32
+	}
+	return 30
+}
+
 func runApprove() int {
 	label := sanitizeDisplayText(decodedDisplayArg("--controller-label-b64=", "--controller-label="), maxDisplayLabelChars)
 	fingerprint := sanitizeDisplayText(decodedDisplayArg("--controller-fingerprint-b64=", "--controller-fingerprint="), maxFingerprintChars)
@@ -121,6 +141,8 @@ func main() {
 		os.Exit(2)
 	}
 	switch mode {
+	case "pairing":
+		os.Exit(runPairing())
 	case "approve":
 		os.Exit(runApprove())
 	case "indicator":
