@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"syscall"
@@ -18,6 +19,7 @@ const (
 	mbSetForeground = 0x00010000
 	mbTopMost       = 0x00040000
 	idYes           = 6
+	maxPairingStdinBytes = 128
 )
 
 var (
@@ -66,8 +68,24 @@ func showMessage(title, body string, flags uintptr) (int, error) {
 	return int(ret), nil
 }
 
+func readPairingCodeFromStdin() string {
+	if argValue("--pairing-stdin=") != "1" {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxPairingStdinBytes+1))
+	if err != nil || len(data) == 0 || len(data) > maxPairingStdinBytes {
+		return ""
+	}
+	return sanitizePairingCode(strings.TrimSpace(string(data)))
+}
+
 func runPairing() int {
-	code := sanitizePairingCode(decodedDisplayArg("--pairing-code-b64=", "--pairing-code="))
+	// Pairing codes are secret-like one-time values. They are accepted only via
+	// inherited stdin and are deliberately refused from command-line arguments.
+	if argValue("--pairing-code=") != "" || argValue("--pairing-code-b64=") != "" {
+		return 32
+	}
+	code := readPairingCodeFromStdin()
 	if code == "" {
 		return 32
 	}
@@ -131,7 +149,6 @@ func runIndicator() int {
 	if err != nil {
 		return 22
 	}
-	// The agent treats helper exit code 20 as a local emergency disconnect.
 	return 20
 }
 
