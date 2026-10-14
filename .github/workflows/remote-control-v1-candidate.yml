@@ -1,0 +1,232 @@
+name: Remote Control v1 Screen-Only Candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-candidate.yml'
+      - '.github/workflows/remote-control-v1-credential-audit.yml'
+      - 'remote/agent-v1/**'
+      - 'remote/consent-v1/**'
+      - 'remote/encoder-mf-v1/**'
+      - 'remote/controller-v1/**'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+      - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
+      - 'src/pc_os_remote_control_v1.go'
+      - 'src/pc_os_remote_input_v1.go'
+      - 'tools/patch_remote_mf_startup_v1.py'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-candidate.yml'
+      - '.github/workflows/remote-control-v1-credential-audit.yml'
+      - 'remote/agent-v1/**'
+      - 'remote/consent-v1/**'
+      - 'remote/encoder-mf-v1/**'
+      - 'remote/controller-v1/**'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+      - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
+      - 'src/pc_os_remote_control_v1.go'
+      - 'src/pc_os_remote_input_v1.go'
+      - 'tools/patch_remote_mf_startup_v1.py'
+
+permissions:
+  contents: read
+
+jobs:
+  build-screen-only-candidate:
+    runs-on: windows-latest
+    env:
+      ZHIROX_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      ZHIROX_SOURCE_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      ZHIROX_SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact source checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          $expected = "$env:ZHIROX_SOURCE_COMMIT".Trim().ToLowerInvariant()
+          if ($actual -ne $expected) { throw "source checkout mismatch: $actual != $expected" }
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Build native Media Foundation H264 encoder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch_remote_mf_startup_v1.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual C++ toolchain not found' }
+          $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $dir = (Resolve-Path 'remote\encoder-mf-v1').Path
+          $cmd = '"' + $dev + '" -arch=x64 -host_arch=x64 && cd /d "' + $dir + '" && cl /nologo /std:c++17 /EHsc /LD encoder.cpp /Fe:ZhiroxMFH264Encoder.dll /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc probe.cpp /Fe:probe.exe'
+          cmd.exe /d /s /c $cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$dir\probe.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build visible consent helper
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ZhiroxRemoteConsent.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test and build screen-only agent
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          $dll = (Resolve-Path '..\encoder-mf-v1\ZhiroxMFH264Encoder.dll').Path
+          $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          $env:ZHIROX_MF_ENCODER_DLL = $dll
+          $env:ZHIROX_MF_ENCODER_SHA256 = $sha
+          go test -v ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-s -w' -o ZhiroxRemoteScreenAgent.exe ./cmd/zhirox-remote-screen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Candidate safety invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $policy = Get-Content 'src\pc_os_remote_control_v1.go' -Raw
+          $inputPolicy = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
+          $orchestrator = Get-Content 'remote\agent-v1\orchestrator.go' -Raw
+          $windowsOrchestrator = Get-Content 'remote\agent-v1\orchestrator_windows.go' -Raw
+          $interactivePipeline = Get-Content 'remote\agent-v1\screen_pipeline_interactive_windows.go' -Raw
+          $captureHelper = Get-Content 'remote\agent-v1\capture_helper_windows.go' -Raw
+          $captureMode = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\capture_mode_windows.go' -Raw
+          $entry = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\main_windows.go' -Raw
+          $bootstrap = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\bootstrap_windows.go' -Raw
+          $consent = Get-Content 'remote\consent-v1\main_windows.go' -Raw
+          if ($policy -notmatch 'Enabled:\s+false') { throw 'remote control must remain disabled by default' }
+          if ($policy -notmatch 'AttendedApprovalRequired:\s+true') { throw 'attended approval invariant missing' }
+          if ($policy -notmatch 'UnattendedAccessEnabled:\s+false') { throw 'unattended access must remain disabled' }
+          if ($inputPolicy -notmatch 'pcOSRemoteInputRuntimeEnabled\s*=\s*false') { throw 'remote input runtime must remain disabled' }
+          if ($orchestrator -notmatch 'screenOnlyCapabilities') { throw 'screen-only capability gate missing' }
+          if ($orchestrator -notmatch 'MaxRemoteSessionDuration\s*=\s*30 \* time.Minute') { throw '30-minute session limit missing' }
+          if ($entry -match 'requiredEnv\("ZHIROX_AGENT_SECRET"\)') { throw 'agent secret must not be loaded from environment' }
+          if ($entry -match 'requiredEnv\("ZHIROX_REMOTE_ICE_SERVERS_JSON"\)') { throw 'TURN/ICE credentials must not be loaded from environment' }
+          if ($entry -notmatch 'secret-bearing environment configuration is refused') { throw 'legacy secret environment refusal is missing' }
+          if ($entry -notmatch 'secure bootstrap stdin mode is required') { throw 'secure stdin bootstrap gate is missing' }
+          if ($entry -notmatch 'if captureHelperRequested\(os.Args\[1:\]\)') { throw 'media-only helper must dispatch before service bootstrap' }
+          if ($bootstrap -notmatch 'DisallowUnknownFields') { throw 'bootstrap must reject unknown fields' }
+          if ($bootstrap -notmatch 'maxBootstrapBytes\s*=\s*64 \* 1024') { throw 'bootstrap size limit missing' }
+          if ($consent -notmatch 'Allow this screen-viewing session') { throw 'visible attended approval wording missing' }
+          if ($windowsOrchestrator -notmatch 'NewInteractiveWindowsScreenPipeline') { throw 'service orchestrator must use interactive capture pipeline' }
+          if ($windowsOrchestrator -match 'NewWindowsScreenPipeline\(') { throw 'service orchestrator must not capture the Session-0 desktop directly' }
+          if ($interactivePipeline -notmatch 'remoteProcThreadAttributeHandleList') { throw 'interactive helper must use an explicit inherited-handle list' }
+          if ($interactivePipeline -notmatch 'remoteCreateEnvironmentBlock') { throw 'interactive helper must receive the signed-in user environment, not the service environment' }
+          if ($interactivePipeline -notmatch 'verifyPinnedSelf') { throw 'interactive helper binary must be SHA-256 reverified before launch' }
+          if ($interactivePipeline -notmatch 'winsta0\\default') { throw 'interactive helper must target the signed-in user desktop' }
+          if ($captureMode -match 'AgentSecret|ZHIROX_AGENT_SECRET|NewSignalingClient|Authorization|controller-token|turn-credential') { throw 'media-only capture mode must not contain signaling/auth credential handling' }
+          if ($captureHelper -match 'NewSignalingClient|AgentSecret|ZHIROX_AGENT_SECRET|Authorization') { throw 'interactive capture helper must remain media-only' }
+          $forbidden = @('SendInput', 'mouse_event', 'keybd_event', 'OpenClipboard', 'SetClipboardData', 'CreateProcessWithToken')
+          foreach ($needle in $forbidden) {
+            if ($orchestrator -match [regex]::Escape($needle)) { throw "Forbidden capability in orchestrator: $needle" }
+            if ($entry -match [regex]::Escape($needle)) { throw "Forbidden capability in candidate: $needle" }
+            if ($captureMode -match [regex]::Escape($needle)) { throw "Forbidden capability in capture helper mode: $needle" }
+          }
+
+      - name: Assemble immutable candidate bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'remote-candidate' | Out-Null
+          Copy-Item 'remote\agent-v1\ZhiroxRemoteScreenAgent.exe' 'remote-candidate\ZhiroxRemoteScreenAgent.exe'
+          Copy-Item 'remote\consent-v1\ZhiroxRemoteConsent.exe' 'remote-candidate\ZhiroxRemoteConsent.exe'
+          Copy-Item 'remote\encoder-mf-v1\ZhiroxMFH264Encoder.dll' 'remote-candidate\ZhiroxMFH264Encoder.dll'
+
+          $files = @('ZhiroxRemoteScreenAgent.exe','ZhiroxRemoteConsent.exe','ZhiroxMFH264Encoder.dll')
+          $artifacts = @()
+          foreach ($name in $files) {
+            $path = Join-Path 'remote-candidate' $name
+            $artifacts += [ordered]@{
+              file = $name
+              sha256 = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+              size = (Get-Item $path).Length
+            }
+          }
+          $manifest = [ordered]@{
+            bundle = 'zhirox-remote-control-v1-screen-only'
+            source_repository = $env:ZHIROX_SOURCE_REPOSITORY
+            source_ref = $env:ZHIROX_SOURCE_REF
+            source_commit = $env:ZHIROX_SOURCE_COMMIT
+            workflow_run_id = '${{ github.run_id }}'
+            base_version = '5.1.6'
+            architecture = 'windows-amd64'
+            publishable = $false
+            production_enabled = $false
+            attended_approval_required = $true
+            unattended_access = $false
+            screen_stream = $true
+            mouse = $false
+            keyboard = $false
+            clipboard = $false
+            file_transfer = $false
+            audio = $false
+            uac_secure_desktop_control = $false
+            max_session_minutes = 30
+            credential_transport = 'anonymous_pipe_stdin'
+            secret_environment_allowed = $false
+            turn_credentials_environment_allowed = $false
+            interactive_capture_helper = $true
+            capture_helper_auth_credentials = $false
+            capture_helper_environment_source = 'interactive_user_environment'
+            capture_helper_inherited_handles = 'h264_pipe_only'
+            artifacts = $artifacts
+          }
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 'remote-candidate\manifest.json'
+          (Get-FileHash -Algorithm SHA256 'remote-candidate\manifest.json').Hash.ToLowerInvariant() | Set-Content -Encoding ASCII 'remote-candidate\manifest.json.sha256'
+
+      - name: Verify bundle hashes and provenance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content 'remote-candidate\manifest.json' -Raw | ConvertFrom-Json
+          if ($manifest.publishable -ne $false -or $manifest.production_enabled -ne $false) { throw 'candidate bundle must remain non-publishable' }
+          if ($manifest.source_commit -ne $env:ZHIROX_SOURCE_COMMIT) { throw 'candidate source commit provenance mismatch' }
+          if ($manifest.source_repository -ne $env:ZHIROX_SOURCE_REPOSITORY) { throw 'candidate repository provenance mismatch' }
+          if ($manifest.source_ref -ne $env:ZHIROX_SOURCE_REF) { throw 'candidate ref provenance mismatch' }
+          if ($manifest.credential_transport -ne 'anonymous_pipe_stdin') { throw 'candidate credential transport must be pipe-only' }
+          if ($manifest.secret_environment_allowed -ne $false -or $manifest.turn_credentials_environment_allowed -ne $false) { throw 'candidate must refuse secret-bearing environment config' }
+          if ($manifest.interactive_capture_helper -ne $true -or $manifest.capture_helper_auth_credentials -ne $false) { throw 'interactive capture helper isolation manifest invariant failed' }
+          if ($manifest.capture_helper_environment_source -ne 'interactive_user_environment') { throw 'capture helper must not inherit the service environment' }
+          if ($manifest.capture_helper_inherited_handles -ne 'h264_pipe_only') { throw 'capture helper inherited-handle boundary is invalid' }
+          foreach ($artifact in $manifest.artifacts) {
+            $path = Join-Path 'remote-candidate' $artifact.file
+            if (!(Test-Path $path)) { throw "Missing candidate artifact $($artifact.file)" }
+            $actual = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            if ($actual -ne $artifact.sha256) { throw "SHA mismatch for $($artifact.file)" }
+          }
+
+      - name: Upload screen-only candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-Remote-Control-v1-screen-only-${{ github.event.pull_request.head.sha || github.sha }}
+          path: remote-candidate/*
+          if-no-files-found: error

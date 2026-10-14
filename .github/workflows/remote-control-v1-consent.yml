@@ -1,0 +1,67 @@
+name: Remote Control v1 Consent Helper
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-consent.yml'
+      - 'remote/consent-v1/**'
+      - 'remote/agent-v1/pairing_windows.go'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-consent.yml'
+      - 'remote/consent-v1/**'
+      - 'remote/agent-v1/pairing_windows.go'
+
+permissions:
+  contents: read
+
+jobs:
+  consent-helper:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Unit tests
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Windows compile
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ZhiroxRemoteConsent.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Visible-consent safety invariants
+        shell: pwsh
+        run: |
+          $source = Get-Content 'remote\consent-v1\main_windows.go' -Raw
+          $policy = Get-Content 'remote\consent-v1\policy.go' -Raw
+          $pairing = Get-Content 'remote\agent-v1\pairing_windows.go' -Raw
+          if ($source -notmatch 'mbTopMost') { throw 'topmost consent/indicator invariant missing' }
+          if ($source -notmatch 'mbSetForeground') { throw 'foreground consent invariant missing' }
+          if ($source -notmatch 'Click OK .* disconnect') { throw 'local disconnect wording missing' }
+          if ($source -notmatch 'readPairingCodeFromStdin') { throw 'pairing helper must read code from stdin' }
+          if ($source -notmatch '--pairing-stdin=') { throw 'pairing stdin gate missing' }
+          if ($source -match 'decodedDisplayArg\("--pairing-code') { throw 'pairing code must not be decoded from command-line arguments' }
+          if ($pairing -notmatch 'InitializeProcThreadAttributeList') { throw 'pairing inherited-handle allowlist missing' }
+          if ($pairing -notmatch 'PROC_THREAD_ATTRIBUTE|remotePairProcThreadAttributeHandles') { throw 'pairing handle-list attribute missing' }
+          if ($pairing -match '--pairing-code-b64=|--pairing-code=') { throw 'pairing code must never be placed on helper command line' }
+          if ($policy -match 'hidden|silent|unattended') { throw 'unsafe hidden/unattended consent mode found' }
+          $forbidden = @('CreateProcess', 'ShellExecute', 'SendInput', 'OpenClipboard', 'PowerShell', 'cmd.exe')
+          foreach ($needle in $forbidden) {
+            if ($source -match [regex]::Escape($needle)) { throw "Forbidden capability in consent helper: $needle" }
+          }

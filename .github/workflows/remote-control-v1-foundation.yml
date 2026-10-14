@@ -1,0 +1,228 @@
+name: Remote Control v1 Foundation
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-foundation.yml'
+      - 'src/pc_os_remote_control_v1.go'
+      - 'src/pc_os_remote_control_v1_test.go'
+      - 'src/pc_os_remote_input_v1.go'
+      - 'src/pc_os_remote_input_v1_test.go'
+      - 'remote/agent-v1/**'
+      - 'remote/controller-v1/**'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+      - 'ops/supabase/zhirox-pc-remote-signaling-v1.ts'
+      - 'docs/REMOTE_CONTROL_V1.md'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  remote-control-v1-foundation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zhirox_remote_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d zhirox_remote_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Go policy and protocol tests
+        run: |
+          set -euo pipefail
+          go test src/pc_os_remote_control_v1.go src/pc_os_remote_control_v1_test.go src/pc_os_remote_input_v1.go src/pc_os_remote_input_v1_test.go
+
+      - name: Pion WebRTC transport tests
+        working-directory: remote/agent-v1
+        run: |
+          set -euo pipefail
+          go mod tidy
+          go test ./...
+          go vet ./...
+          git diff --exit-code -- go.mod
+
+      - name: Signaling and browser-controller checks
+        run: |
+          set -euo pipefail
+          deno check ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          node --check remote/controller-v1/app.js
+          grep -q 'video/h264' remote/controller-v1/app.js
+          grep -q 'waiting for local approval' remote/controller-v1/app.js
+          grep -q 'npm:@supabase/supabase-js@2.117.3' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q 'pc_remote_controller_tokens' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q 'origin_refused' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q 'dedicated_agent_scoped_token' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          if grep -q 'detail: message' ops/supabase/zhirox-pc-remote-signaling-v1.ts; then
+            echo 'Internal signaling errors must not be exposed to clients.' >&2
+            exit 1
+          fi
+          if grep -Eqi 'localStorage|sessionStorage' remote/controller-v1/app.js; then
+            echo 'Controller v1 must not persist credentials.' >&2
+            exit 1
+          fi
+          if grep -Eqi 'keydown|keyup|mousemove|mousedown|mouseup|wheel' remote/controller-v1/app.js; then
+            echo 'Controller v1 must not register or send input events.' >&2
+            exit 1
+          fi
+
+      - name: Fail-closed invariants
+        run: |
+          set -euo pipefail
+          grep -q 'Enabled:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'AttendedApprovalRequired:[[:space:]]*true' src/pc_os_remote_control_v1.go
+          grep -q 'UnattendedAccessEnabled:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'SecureDesktopControl:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'SignalingCarriesMedia:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'WebRTCDTLSEncryption:[[:space:]]*true' src/pc_os_remote_control_v1.go
+          grep -q 'IdleTimeoutSeconds:[[:space:]]*0' src/pc_os_remote_control_v1.go
+          grep -q 'Mouse:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'Keyboard:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'Clipboard:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'FileTransfer:[[:space:]]*false' src/pc_os_remote_control_v1.go
+          grep -q 'pcOSRemoteInputRuntimeEnabled = false' src/pc_os_remote_input_v1.go
+          grep -q 'input_control_enabled:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q 'media_proxy:[[:space:]]*false' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q 'idle_timeout_seconds:[[:space:]]*0' ops/supabase/zhirox-pc-remote-signaling-v1.ts
+          grep -q '^go 1.24' remote/agent-v1/go.mod
+          grep -q 'github.com/pion/webrtc/v4 v4.2.23' remote/agent-v1/go.mod
+          grep -q 'webrtc.MimeTypeH264' remote/agent-v1/session.go
+          grep -q 'packetization-mode=1' remote/agent-v1/session.go
+          if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|mouse_event|keybd_event|OpenClipboard|SetClipboardData' src/pc_os_remote_control_v1.go src/pc_os_remote_input_v1.go remote/agent-v1/session.go ops/supabase/zhirox-pc-remote-signaling-v1.ts; then
+            echo 'Phase 1/2 foundation must not contain input injection or shell execution.' >&2
+            exit 1
+          fi
+
+      - name: Execute schema in isolated Postgres
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d zhirox_remote_test <<'SQL'
+          create role anon nologin;
+          create role authenticated nologin;
+          create table public.pc_relay_agents (
+            agent_id text primary key,
+            secret_hash text,
+            version text,
+            last_seen_at timestamptz,
+            last_health_score integer
+          );
+          SQL
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d zhirox_remote_test -f ops/supabase/remote_control_v1_schema.sql
+
+      - name: Database security and constraint tests
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d zhirox_remote_test <<'SQL'
+          do $$
+          declare
+            token_a text := repeat('a', 64);
+            token_c text := repeat('c', 64);
+          begin
+            if exists (
+              select 1 from pg_policies
+              where schemaname = 'public' and tablename in (
+                'pc_remote_controller_tokens','pc_remote_sessions','pc_remote_signals','pc_remote_audit'
+              )
+            ) then
+              raise exception 'remote tables must not expose direct client RLS policies';
+            end if;
+
+            if exists (
+              select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+              where n.nspname='public'
+                and c.relname in ('pc_remote_controller_tokens','pc_remote_sessions','pc_remote_signals','pc_remote_audit')
+                and not c.relrowsecurity
+            ) then
+              raise exception 'RLS must be enabled on every remote table';
+            end if;
+
+            if has_table_privilege('anon','public.pc_remote_sessions','select')
+               or has_table_privilege('authenticated','public.pc_remote_sessions','select')
+               or has_table_privilege('anon','public.pc_remote_controller_tokens','select')
+               or has_table_privilege('authenticated','public.pc_remote_controller_tokens','select') then
+              raise exception 'anon/authenticated must not have direct remote table access';
+            end if;
+
+            insert into public.pc_relay_agents(agent_id) values ('agent-a'), ('agent-b'), ('agent-c');
+            insert into public.pc_remote_controller_tokens(token_hash, agent_id, expires_at)
+              values (token_a, 'agent-a', now() + interval '1 hour');
+            insert into public.pc_remote_controller_tokens(token_hash, agent_id, expires_at)
+              values (token_c, 'agent-c', now() + interval '1 hour');
+
+            insert into public.pc_remote_sessions(agent_id, controller_token_hash, state, expires_at)
+              values ('agent-a', token_a, 'requested', now() + interval '20 minutes');
+
+            begin
+              insert into public.pc_remote_sessions(agent_id, controller_token_hash, state, expires_at)
+                values ('agent-a', token_a, 'requested', now() + interval '20 minutes');
+              raise exception 'single-live-session unique gate failed';
+            exception when unique_violation then
+              null;
+            end;
+
+            begin
+              insert into public.pc_remote_sessions(agent_id, controller_token_hash, state, expires_at)
+                values ('agent-b', token_a, 'requested', now() + interval '20 minutes');
+              raise exception 'controller token cross-agent scope gate failed';
+            exception when foreign_key_violation then
+              null;
+            end;
+
+            begin
+              insert into public.pc_remote_sessions(
+                agent_id, controller_token_hash, state, expires_at, requested_capabilities
+              ) values (
+                'agent-c', token_c, 'requested', now() + interval '20 minutes',
+                '{"screen_stream":true,"mouse":true,"keyboard":false,"clipboard":false,"file_transfer":false,"audio":false}'::jsonb
+              );
+              raise exception 'screen-only capability constraint failed';
+            exception when check_violation then
+              null;
+            end;
+
+            begin
+              insert into public.pc_remote_controller_tokens(token_hash, agent_id, expires_at)
+                values (repeat('d', 64), 'agent-b', now() + interval '25 hours');
+              raise exception 'controller-token TTL constraint failed';
+            exception when check_violation then
+              null;
+            end;
+          end $$;
+          SQL
+
+      - name: Schema static safety checks
+        run: |
+          set -euo pipefail
+          grep -q 'enable row level security' ops/supabase/remote_control_v1_schema.sql
+          grep -q 'revoke all on public.pc_remote_sessions from anon, authenticated' ops/supabase/remote_control_v1_schema.sql
+          grep -q 'pc_remote_controller_tokens' ops/supabase/remote_control_v1_schema.sql
+          grep -q 'pc_remote_session_controller_scope_fk' ops/supabase/remote_control_v1_schema.sql
+          grep -q 'pc_remote_sessions_one_live_per_agent_idx' ops/supabase/remote_control_v1_schema.sql
+          grep -q "state in ('requested','approved','connecting','active','ended','rejected','expired')" ops/supabase/remote_control_v1_schema.sql
+          grep -q "expires_at > requested_at and expires_at <= requested_at + interval '30 minutes'" ops/supabase/remote_control_v1_schema.sql

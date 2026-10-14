@@ -1,0 +1,17 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; }
+body { margin: 0; background: #101215; color: #f4f6f8; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.card { background: #1a1e23; border: 1px solid #303640; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 12px; }
+label { display: grid; gap: 6px; font-size: 13px; color: #b9c0c9; }
+input, button { font: inherit; }
+input { background: #0e1115; border: 1px solid #38414c; border-radius: 9px; color: #fff; padding: 10px; }
+button { border: 0; border-radius: 9px; padding: 10px 14px; cursor: pointer; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+video { width: 100%; min-height: 360px; background: #000; border-radius: 12px; object-fit: contain; }
+#status { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
+.danger { background: #6f2930; color: white; }
+.primary { background: #e5e7eb; color: #111; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.badge { display:inline-block; border:1px solid #46505c; padding:4px 8px; border-radius:999px; font-size:12px; }
+.notice { margin-top: 12px; color: #b9c0c9; font-size: 13px; }

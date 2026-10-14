@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https: http://localhost:* http://127.0.0.1:*; media-src 'self' blob:; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <title>Zhirox Remote Control v1</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<main>
+  <h1>Zhirox Remote Control v1</h1>
+  <p><span class="badge">Attended approval</span> <span class="badge">Screen only</span> <span class="badge">Input disabled</span></p>
+
+  <section class="card">
+    <div class="grid">
+      <label>Signaling endpoint
+        <input id="endpoint" placeholder="https://PROJECT.supabase.co/functions/v1/zhirox-pc-remote-signaling-v1" autocomplete="off" autocapitalize="none" spellcheck="false" />
+      </label>
+      <label>Controller token
+        <input id="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" />
+      </label>
+      <label>Agent ID
+        <input id="agent" value="Server-c24b5c0f" autocomplete="off" autocapitalize="none" spellcheck="false" />
+      </label>
+      <label>Controller label
+        <input id="label" value="Zhirox Browser Controller" autocomplete="off" />
+      </label>
+    </div>
+    <p class="notice">v1 canary uses direct ICE only. TURN credentials are never pasted into this page; relay-only TURN is a separate credentialed gate.</p>
+    <div class="row">
+      <button id="connect" class="primary">Request session</button>
+      <button id="disconnect" class="danger" disabled>Disconnect</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <video id="screen" autoplay playsinline></video>
+  </section>
+
+  <section class="card">
+    <strong>Status</strong>
+    <div id="status">idle</div>
+  </section>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

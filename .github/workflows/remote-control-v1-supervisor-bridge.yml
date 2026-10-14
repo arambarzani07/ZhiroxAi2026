@@ -1,0 +1,141 @@
+name: Remote Control v1 Supervisor Bridge
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-supervisor-bridge.yml'
+      - 'src/pc_os_remote_agent_launcher_v1_windows.go'
+      - 'src/pc_os_remote_agent_launcher_v1_windows_test.go'
+      - 'tools/remote_bridge_probe/**'
+      - 'src/pc_os_cloud_v510.go'
+      - 'tools/patch_v516.py'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-supervisor-bridge.yml'
+      - 'src/pc_os_remote_agent_launcher_v1_windows.go'
+      - 'src/pc_os_remote_agent_launcher_v1_windows_test.go'
+      - 'tools/remote_bridge_probe/**'
+      - 'src/pc_os_cloud_v510.go'
+      - 'tools/patch_v516.py'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-supervisor-bridge:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Restore production Supervisor source through v5.1.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python tools/patch_downloader_v503.py
+          python tools/patch_v505.py
+          python tools/patch_v506.py
+          python tools/patch_v507.py
+          python tools/patch_v508.py
+          python tools/patch_v509.py
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python tools/patch_v510.py
+          python tools/patch_trust_v510.py
+          python tools/patch_self_updater_v510.py
+          cp src/pc_os_recovery_v511_windows.go buildsrc/pc_os_recovery_v511_windows.go
+          python tools/patch_v511.py
+          cp src/pc_os_watchdog_policy_v512.go buildsrc/pc_os_watchdog_policy_v512.go
+          cp src/pc_os_watchdog_v512_windows.go buildsrc/pc_os_watchdog_v512_windows.go
+          python tools/patch_v512.py
+          cp src/pc_os_screen_observability.go buildsrc/pc_os_screen_observability.go
+          cp src/pc_os_screen_observability_windows.go buildsrc/pc_os_screen_observability_windows.go
+          python tools/patch_screen_observability_v1.py
+          python tools/patch_v514.py
+          python tools/patch_screen_observability_gdi_v515.py
+          python tools/patch_v515.py
+          python tools/patch_screen_observability_dib_v516.py
+          python tools/patch_v516_compilefix.py
+          python tools/patch_v516.py
+          cp src/pc_os_remote_agent_launcher_v1_windows.go buildsrc/pc_os_remote_agent_launcher_v1_windows.go
+          cp src/pc_os_remote_agent_launcher_v1_windows_test.go buildsrc/pc_os_remote_agent_launcher_v1_windows_test.go
+
+      - name: Bridge safety invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=src/pc_os_remote_agent_launcher_v1_windows.go
+          grep -q 'pcOSLoadRelayCredentials()' "$f"
+          grep -q 'pcOSRemoteBridgeProcHandleList' "$f"
+          grep -q 'pcOSRemoteBridgeCreateProcessW' "$f"
+          grep -q 'ZHIROX_REMOTE_BOOTSTRAP_STDIN' "$f"
+          grep -q 'pcOSRemoteVerifyLaunchArtifacts(normalized)' "$f"
+          if grep -Eq 'os\.Environ\(|ZHIROX_AGENT_SECRET|ZHIROX_REMOTE_TURN_CREDENTIAL|cmd\.exe|powershell\.exe|SendInput|keybd_event|mouse_event|OpenClipboard|SetClipboardData' "$f"; then
+            echo 'Supervisor bridge contains a forbidden secret/environment/input/shell primitive.' >&2
+            exit 1
+          fi
+          if grep -Eq 'AgentSecret.*(command|args|environment)|Secret.*(command|args|environment)' "$f"; then
+            echo 'Supervisor bridge must not move agent secret through command line or environment.' >&2
+            exit 1
+          fi
+
+      - name: Build bridge child probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path bridge-probe | Out-Null
+          go build -trimpath -ldflags='-s -w' -o bridge-probe/ZhiroxRemoteScreenAgent.exe tools/remote_bridge_probe/main_windows.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run real Windows secure-pipe bridge tests
+        working-directory: buildsrc
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:ZHIROX_REMOTE_BRIDGE_PROBE_EXE = (Resolve-Path '..\bridge-probe\ZhiroxRemoteScreenAgent.exe').Path
+          go test -v -run 'TestRemote' .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Vet and build Supervisor with bridge compiled in
+        working-directory: buildsrc
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o ZhiroxAISupervisor-remote-bridge-check.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Confirm bridge is compile-only and not production-routed
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The launcher exists in the reconstructed binary but this feature branch
+          # intentionally adds no command-router case, startup call, or automatic
+          # service invocation for it.
+          if grep -R -En --exclude='pc_os_remote_agent_launcher_v1_windows.go' --exclude='pc_os_remote_agent_launcher_v1_windows_test.go' \
+             'pcOSLaunchRemoteScreenAgent|pcOSStartRemoteScreenAgent' buildsrc/*.go; then
+            echo 'Remote screen launcher was unexpectedly wired into production runtime.' >&2
+            exit 1
+          fi
+          echo 'PASS: Supervisor bridge is compiled/tested but has no production runtime route.'

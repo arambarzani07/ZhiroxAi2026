@@ -1,0 +1,112 @@
+name: Remote Control v1 Windows Encoder
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-windows-encoder.yml'
+      - 'remote/encoder-mf-v1/**'
+      - 'remote/agent-v1/**'
+      - 'tools/patch_remote_mf_startup_v1.py'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-windows-encoder.yml'
+      - 'remote/encoder-mf-v1/**'
+      - 'remote/agent-v1/**'
+      - 'tools/patch_remote_mf_startup_v1.py'
+
+permissions:
+  contents: read
+
+jobs:
+  media-foundation-h264:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Apply verified Media Foundation startup ordering
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch_remote_mf_startup_v1.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String -Path 'remote\encoder-mf-v1\encoder.cpp' -Pattern 'ProcessMessage\(MFT_MESSAGE_COMMAND_FLUSH, 0\)') {
+            throw 'Initial COMMAND_FLUSH must not remain in encoder startup path'
+          }
+
+      - name: Compile Media Foundation H264 encoder DLL, diagnostic and probes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual C++ toolchain not found' }
+          $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $dir = (Resolve-Path 'remote\encoder-mf-v1').Path
+          $cmd = '"' + $dev + '" -arch=x64 -host_arch=x64 && cd /d "' + $dir + '" && cl /nologo /std:c++17 /EHsc /LD encoder.cpp /Fe:ZhiroxMFH264Encoder.dll /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc diagnose.cpp /Fe:diagnose.exe /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc probe.cpp /Fe:probe.exe'
+          cmd.exe /d /s /c $cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Media Foundation H264 stage diagnostic
+        working-directory: remote/encoder-mf-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\diagnose.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Real Windows H264 encode probe
+        working-directory: remote/encoder-mf-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\probe.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Go bridge, DIB capture compile and direct-ICE screen-track gates
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          $dll = (Resolve-Path '..\encoder-mf-v1\ZhiroxMFH264Encoder.dll').Path
+          $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          $env:ZHIROX_MF_ENCODER_DLL = $dll
+          $env:ZHIROX_MF_ENCODER_SHA256 = $sha
+          go test -v .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Capture and DLL safety boundary scan
+        shell: pwsh
+        run: |
+          $text = Get-Content 'remote\encoder-mf-v1\encoder.cpp' -Raw
+          $go = Get-Content 'remote\agent-v1\encoder_windows.go' -Raw
+          $capture = Get-Content 'remote\agent-v1\screen_capture_windows.go' -Raw
+          $pipeline = Get-Content 'remote\agent-v1\screen_pipeline_windows.go' -Raw
+          $forbidden = @('CreateProcess', 'ShellExecute', 'WinExec', 'PowerShell', 'cmd.exe', 'SendInput', 'OpenClipboard', 'SetClipboardData')
+          foreach ($needle in $forbidden) {
+            if ($text -match [regex]::Escape($needle)) { throw "Forbidden capability in encoder: $needle" }
+            if ($capture -match [regex]::Escape($needle)) { throw "Forbidden capability in capture: $needle" }
+            if ($pipeline -match [regex]::Escape($needle)) { throw "Forbidden capability in pipeline: $needle" }
+          }
+          if ($text -notmatch 'MFVideoFormat_NV12') { throw 'NV12 input invariant missing' }
+          if ($text -notmatch 'MFVideoFormat_H264') { throw 'H264 output invariant missing' }
+          if ($text -notmatch 'CODECAPI_AVLowLatencyMode') { throw 'low-latency invariant missing' }
+          if ($go -notmatch 'SHA-256 pin is required') { throw 'DLL SHA pin invariant missing' }
+          if ($go -notmatch 'filepath.IsAbs') { throw 'absolute DLL path invariant missing' }
+          if ($capture -notmatch 'CreateDIBSection') { throw 'DIB capture invariant missing' }
+          if ($capture -notmatch 'BitBlt') { throw 'desktop BitBlt invariant missing' }
+          if ($pipeline -notmatch 'RunScreenStream') { throw 'capture-to-encoder-to-WebRTC wiring invariant missing' }
