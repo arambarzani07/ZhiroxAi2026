@@ -120,7 +120,15 @@ func run() error {
 }
 
 func main() {
-	if err := run(); err != nil {
+	var err error
+	if captureHelperRequested(os.Args[1:]) {
+		// Media-only helper mode is dispatched before any service-side bootstrap,
+		// signaling credential or TURN secret is read.
+		err = runCaptureHelper(os.Args[1:])
+	} else {
+		err = run()
+	}
+	if err != nil {
 		// Do not print bootstrap payloads, environment values or credentials.
 		// Error messages are deliberately configuration/stage-only.
 		fmt.Fprintf(os.Stderr, "Zhirox %s stopped: %v\n", candidateVersion, err)
