@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -51,42 +50,33 @@ func envUint32(name string, fallback uint32) (uint32, error) {
 	return uint32(v), nil
 }
 
-func loadICEServers() ([]webrtc.ICEServer, error) {
-	raw := strings.TrimSpace(os.Getenv("ZHIROX_REMOTE_ICE_SERVERS_JSON"))
-	if raw == "" {
-		return nil, nil
-	}
-	if len(raw) > 32*1024 {
-		return nil, errors.New("ZHIROX_REMOTE_ICE_SERVERS_JSON exceeds 32 KiB")
-	}
-	var servers []webrtc.ICEServer
-	if err := json.Unmarshal([]byte(raw), &servers); err != nil {
-		return nil, errors.New("ZHIROX_REMOTE_ICE_SERVERS_JSON is invalid JSON")
-	}
-	if len(servers) > 8 {
-		return nil, errors.New("at most 8 ICE servers are allowed")
-	}
-	for _, server := range servers {
-		if len(server.URLs) == 0 || len(server.URLs) > 8 {
-			return nil, errors.New("each ICE server must contain 1 to 8 URLs")
-		}
-		for _, u := range server.URLs {
-			lower := strings.ToLower(strings.TrimSpace(u))
-			if !(strings.HasPrefix(lower, "stun:") || strings.HasPrefix(lower, "stuns:") || strings.HasPrefix(lower, "turn:") || strings.HasPrefix(lower, "turns:")) {
-				return nil, errors.New("ICE URLs must use stun/stuns/turn/turns")
-			}
+func rejectLegacySecretEnvironment() error {
+	for _, name := range []string{
+		"ZHIROX_AGENT_SECRET",
+		"ZHIROX_REMOTE_ICE_SERVERS_JSON",
+		"ZHIROX_REMOTE_TURN_USERNAME",
+		"ZHIROX_REMOTE_TURN_CREDENTIAL",
+	} {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return errors.New("secret-bearing environment configuration is refused; secure bootstrap pipe is required")
 		}
 	}
-	return servers, nil
+	return nil
 }
 
 func run() error {
-	baseURL, err := requiredEnv("ZHIROX_REMOTE_SIGNAL_URL")
-	if err != nil { return err }
-	agentID, err := requiredEnv("ZHIROX_AGENT_ID")
-	if err != nil { return err }
-	agentSecret, err := requiredEnv("ZHIROX_AGENT_SECRET")
-	if err != nil { return err }
+	if err := rejectLegacySecretEnvironment(); err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("ZHIROX_REMOTE_BOOTSTRAP_STDIN")), "1") &&
+		!strings.EqualFold(strings.TrimSpace(os.Getenv("ZHIROX_REMOTE_BOOTSTRAP_STDIN")), "true") {
+		return errors.New("secure bootstrap stdin mode is required")
+	}
+	bootstrap, err := readBootstrap(os.Stdin)
+	if err != nil {
+		return err
+	}
+
 	consentPath, err := requiredEnv("ZHIROX_REMOTE_CONSENT_PATH")
 	if err != nil { return err }
 	consentSHA, err := requiredEnv("ZHIROX_REMOTE_CONSENT_SHA256")
@@ -99,18 +89,17 @@ func run() error {
 	if err != nil { return err }
 	bitrate, err := envUint32("ZHIROX_REMOTE_BITRATE", 4_000_000)
 	if err != nil { return err }
-	iceServers, err := loadICEServers()
-	if err != nil { return err }
+	iceServers := bootstrapWebRTCServers(bootstrap)
 
 	policy := webrtc.ICETransportPolicyAll
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("ZHIROX_REMOTE_RELAY_ONLY")), "1") || strings.EqualFold(strings.TrimSpace(os.Getenv("ZHIROX_REMOTE_RELAY_ONLY")), "true") {
+	if bootstrap.RelayOnly {
 		if len(iceServers) == 0 {
 			return errors.New("relay-only mode requires configured TURN/ICE servers")
 		}
 		policy = webrtc.ICETransportPolicyRelay
 	}
 
-	signaling, err := remoteagent.NewSignalingClient(baseURL, agentID, agentSecret, nil)
+	signaling, err := remoteagent.NewSignalingClient(bootstrap.SignalURL, bootstrap.AgentID, bootstrap.AgentSecret, nil)
 	if err != nil { return err }
 	orchestrator, err := remoteagent.NewWindowsOrchestrator(remoteagent.WindowsOrchestratorConfig{
 		Signaling: signaling,
@@ -132,8 +121,8 @@ func run() error {
 
 func main() {
 	if err := run(); err != nil {
-		// Do not print environment values or credentials. Error messages are
-		// deliberately configuration/stage-only.
+		// Do not print bootstrap payloads, environment values or credentials.
+		// Error messages are deliberately configuration/stage-only.
 		fmt.Fprintf(os.Stderr, "Zhirox %s stopped: %v\n", candidateVersion, err)
 		os.Exit(1)
 	}
