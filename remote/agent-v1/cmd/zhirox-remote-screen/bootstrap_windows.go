@@ -22,11 +22,21 @@ type bootstrapICEServer struct {
 }
 
 type bootstrapConfig struct {
+	Mode        string               `json:"mode,omitempty"`
 	SignalURL   string               `json:"signal_url"`
-	AgentID     string               `json:"agent_id"`
-	AgentSecret string               `json:"agent_secret"`
+	AgentID     string               `json:"agent_id,omitempty"`
+	AgentSecret string               `json:"agent_secret,omitempty"`
+	AgentLabel  string               `json:"agent_label,omitempty"`
 	ICEServers  []bootstrapICEServer `json:"ice_servers,omitempty"`
 	RelayOnly   bool                 `json:"relay_only,omitempty"`
+}
+
+func (c bootstrapConfig) normalizedMode() string {
+	mode := strings.ToLower(strings.TrimSpace(c.Mode))
+	if mode == "" {
+		return "production"
+	}
+	return mode
 }
 
 func readBootstrap(r io.Reader) (bootstrapConfig, error) {
@@ -58,6 +68,7 @@ func readBootstrap(r io.Reader) (bootstrapConfig, error) {
 	if err := validateBootstrap(cfg); err != nil {
 		return bootstrapConfig{}, err
 	}
+	cfg.Mode = cfg.normalizedMode()
 	return cfg, nil
 }
 
@@ -65,11 +76,26 @@ func validateBootstrap(cfg bootstrapConfig) error {
 	if strings.TrimSpace(cfg.SignalURL) == "" {
 		return errors.New("bootstrap signaling URL is required")
 	}
-	if strings.TrimSpace(cfg.AgentID) == "" || len(cfg.AgentID) > 160 {
-		return errors.New("bootstrap agent id is invalid")
-	}
-	if strings.TrimSpace(cfg.AgentSecret) == "" || len(cfg.AgentSecret) > 4096 {
-		return errors.New("bootstrap agent secret is invalid")
+	switch cfg.normalizedMode() {
+	case "production":
+		if strings.TrimSpace(cfg.AgentID) == "" || len(cfg.AgentID) > 160 {
+			return errors.New("bootstrap agent id is invalid")
+		}
+		if strings.TrimSpace(cfg.AgentSecret) == "" || len(cfg.AgentSecret) > 4096 {
+			return errors.New("bootstrap agent secret is invalid")
+		}
+	case "canary":
+		// Canary pairing is deliberately isolated from production identity.
+		// Supplying production-style credentials in canary mode fails closed.
+		if strings.TrimSpace(cfg.AgentID) != "" || strings.TrimSpace(cfg.AgentSecret) != "" {
+			return errors.New("canary bootstrap refuses production agent credentials")
+		}
+		label := strings.TrimSpace(cfg.AgentLabel)
+		if label == "" || len(label) > 120 {
+			return errors.New("canary bootstrap agent label is invalid")
+		}
+	default:
+		return errors.New("bootstrap mode is unsupported")
 	}
 	if len(cfg.ICEServers) > 8 {
 		return errors.New("bootstrap allows at most 8 ICE servers")
