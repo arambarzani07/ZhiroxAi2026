@@ -76,6 +76,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if bootstrap.normalizedMode() == "canary" {
+		return runCanary(bootstrap)
+	}
 
 	consentPath, err := requiredEnv("ZHIROX_REMOTE_CONSENT_PATH")
 	if err != nil { return err }
