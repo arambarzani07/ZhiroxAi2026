@@ -22,6 +22,9 @@ func TestRemoteControlV1DefaultsFailClosed(t *testing.T) {
 	if !p.WebRTCDTLSEncryption {
 		t.Fatal("WebRTC DTLS encryption is mandatory")
 	}
+	if p.IdleTimeoutSeconds != 0 {
+		t.Fatal("screen-only v1 must not claim an unenforced signaling idle timeout")
+	}
 	if !p.Capabilities.ScreenStream {
 		t.Fatal("screen streaming capability must be modeled")
 	}
