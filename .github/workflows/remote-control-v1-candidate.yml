@@ -101,6 +101,10 @@ jobs:
           $policy = Get-Content 'src\pc_os_remote_control_v1.go' -Raw
           $inputPolicy = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
           $orchestrator = Get-Content 'remote\agent-v1\orchestrator.go' -Raw
+          $windowsOrchestrator = Get-Content 'remote\agent-v1\orchestrator_windows.go' -Raw
+          $interactivePipeline = Get-Content 'remote\agent-v1\screen_pipeline_interactive_windows.go' -Raw
+          $captureHelper = Get-Content 'remote\agent-v1\capture_helper_windows.go' -Raw
+          $captureMode = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\capture_mode_windows.go' -Raw
           $entry = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\main_windows.go' -Raw
           $bootstrap = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\bootstrap_windows.go' -Raw
           $consent = Get-Content 'remote\consent-v1\main_windows.go' -Raw
@@ -114,13 +118,23 @@ jobs:
           if ($entry -match 'requiredEnv\("ZHIROX_REMOTE_ICE_SERVERS_JSON"\)') { throw 'TURN/ICE credentials must not be loaded from environment' }
           if ($entry -notmatch 'secret-bearing environment configuration is refused') { throw 'legacy secret environment refusal is missing' }
           if ($entry -notmatch 'secure bootstrap stdin mode is required') { throw 'secure stdin bootstrap gate is missing' }
+          if ($entry -notmatch 'if captureHelperRequested\(os.Args\[1:\]\)') { throw 'media-only helper must dispatch before service bootstrap' }
           if ($bootstrap -notmatch 'DisallowUnknownFields') { throw 'bootstrap must reject unknown fields' }
           if ($bootstrap -notmatch 'maxBootstrapBytes\s*=\s*64 \* 1024') { throw 'bootstrap size limit missing' }
           if ($consent -notmatch 'Allow this screen-viewing session') { throw 'visible attended approval wording missing' }
+          if ($windowsOrchestrator -notmatch 'NewInteractiveWindowsScreenPipeline') { throw 'service orchestrator must use interactive capture pipeline' }
+          if ($windowsOrchestrator -match 'NewWindowsScreenPipeline\(') { throw 'service orchestrator must not capture the Session-0 desktop directly' }
+          if ($interactivePipeline -notmatch 'remoteProcThreadAttributeHandleList') { throw 'interactive helper must use an explicit inherited-handle list' }
+          if ($interactivePipeline -notmatch 'remoteCreateEnvironmentBlock') { throw 'interactive helper must receive the signed-in user environment, not the service environment' }
+          if ($interactivePipeline -notmatch 'verifyPinnedSelf') { throw 'interactive helper binary must be SHA-256 reverified before launch' }
+          if ($interactivePipeline -notmatch 'winsta0\\default') { throw 'interactive helper must target the signed-in user desktop' }
+          if ($captureMode -match 'AgentSecret|ZHIROX_AGENT_SECRET|NewSignalingClient|Authorization|controller-token|turn-credential') { throw 'media-only capture mode must not contain signaling/auth credential handling' }
+          if ($captureHelper -match 'NewSignalingClient|AgentSecret|ZHIROX_AGENT_SECRET|Authorization') { throw 'interactive capture helper must remain media-only' }
           $forbidden = @('SendInput', 'mouse_event', 'keybd_event', 'OpenClipboard', 'SetClipboardData', 'CreateProcessWithToken')
           foreach ($needle in $forbidden) {
             if ($orchestrator -match [regex]::Escape($needle)) { throw "Forbidden capability in orchestrator: $needle" }
             if ($entry -match [regex]::Escape($needle)) { throw "Forbidden capability in candidate: $needle" }
+            if ($captureMode -match [regex]::Escape($needle)) { throw "Forbidden capability in capture helper mode: $needle" }
           }
 
       - name: Assemble immutable candidate bundle
@@ -165,6 +179,10 @@ jobs:
             credential_transport = 'anonymous_pipe_stdin'
             secret_environment_allowed = $false
             turn_credentials_environment_allowed = $false
+            interactive_capture_helper = $true
+            capture_helper_auth_credentials = $false
+            capture_helper_environment_source = 'interactive_user_environment'
+            capture_helper_inherited_handles = 'h264_pipe_only'
             artifacts = $artifacts
           }
           $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 'remote-candidate\manifest.json'
@@ -180,6 +198,9 @@ jobs:
           if ($manifest.source_repository -ne '${{ github.repository }}') { throw 'candidate repository provenance mismatch' }
           if ($manifest.credential_transport -ne 'anonymous_pipe_stdin') { throw 'candidate credential transport must be pipe-only' }
           if ($manifest.secret_environment_allowed -ne $false -or $manifest.turn_credentials_environment_allowed -ne $false) { throw 'candidate must refuse secret-bearing environment config' }
+          if ($manifest.interactive_capture_helper -ne $true -or $manifest.capture_helper_auth_credentials -ne $false) { throw 'interactive capture helper isolation manifest invariant failed' }
+          if ($manifest.capture_helper_environment_source -ne 'interactive_user_environment') { throw 'capture helper must not inherit the service environment' }
+          if ($manifest.capture_helper_inherited_handles -ne 'h264_pipe_only') { throw 'capture helper inherited-handle boundary is invalid' }
           foreach ($artifact in $manifest.artifacts) {
             $path = Join-Path 'remote-candidate' $artifact.file
             if (!(Test-Path $path)) { throw "Missing candidate artifact $($artifact.file)" }
