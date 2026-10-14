@@ -10,7 +10,6 @@ import (
 const (
 	pcOSRemoteControlProtocolVersion = "1"
 	pcOSRemoteMaxSessionDuration    = 30 * time.Minute
-	pcOSRemoteIdleTimeout           = 5 * time.Minute
 	pcOSRemoteApprovalTTL           = 2 * time.Minute
 	pcOSRemoteMaxControllers        = 1
 	pcOSRemoteMaxInputEventsPerSec  = 240
@@ -73,7 +72,10 @@ func pcOSRemoteControlPolicy() pcOSRemoteSessionPolicy {
 		TURNFallbackAllowed:      true,
 		MaxControllers:          pcOSRemoteMaxControllers,
 		MaxSessionSeconds:       int(pcOSRemoteMaxSessionDuration / time.Second),
-		IdleTimeoutSeconds:      int(pcOSRemoteIdleTimeout / time.Second),
+		// Screen-only media is peer-to-peer WebRTC and does not traverse the
+		// signaling service, so a server-side "idle" claim would be false.
+		// Keep it disabled until a reviewed end-to-end activity signal exists.
+		IdleTimeoutSeconds:      0,
 		ApprovalTTLSeconds:      int(pcOSRemoteApprovalTTL / time.Second),
 		MaxInputEventsPerSecond: pcOSRemoteMaxInputEventsPerSec,
 		Capabilities: pcOSRemoteCapabilities{
