@@ -16,7 +16,8 @@ create table if not exists public.pc_remote_controller_tokens (
   constraint pc_remote_controller_token_label_bound
     check (char_length(label) between 1 and 120),
   constraint pc_remote_controller_token_ttl_bound
-    check (expires_at > created_at and expires_at <= created_at + interval '24 hours')
+    check (expires_at > created_at and expires_at <= created_at + interval '24 hours'),
+  constraint pc_remote_controller_token_scope_unique unique (token_hash, agent_id)
 );
 
 create index if not exists pc_remote_controller_tokens_active_idx
@@ -26,7 +27,7 @@ create index if not exists pc_remote_controller_tokens_active_idx
 create table if not exists public.pc_remote_sessions (
   id uuid primary key default gen_random_uuid(),
   agent_id text not null references public.pc_relay_agents(agent_id) on delete cascade,
-  controller_token_hash text not null references public.pc_remote_controller_tokens(token_hash) on delete restrict,
+  controller_token_hash text not null,
   state text not null check (state in ('requested','approved','connecting','active','ended','rejected','expired')),
   requested_capabilities jsonb not null default '{"screen_stream":true,"mouse":false,"keyboard":false,"clipboard":false,"file_transfer":false,"audio":false}'::jsonb,
   approved_capabilities jsonb not null default '{}'::jsonb,
@@ -39,6 +40,10 @@ create table if not exists public.pc_remote_sessions (
   controller_label text,
   controller_fingerprint text,
   reason text,
+  constraint pc_remote_session_controller_scope_fk
+    foreign key (controller_token_hash, agent_id)
+    references public.pc_remote_controller_tokens(token_hash, agent_id)
+    on delete cascade,
   constraint pc_remote_session_expiry_bound
     check (expires_at > requested_at and expires_at <= requested_at + interval '30 minutes'),
   constraint pc_remote_session_requested_screen_only
