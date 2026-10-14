@@ -20,12 +20,38 @@ func TestReadBootstrapAcceptsBoundedScreenOnlyCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bootstrap rejected: %v", err)
 	}
-	if cfg.AgentID != "Server-c24b5c0f" || cfg.AgentSecret == "" || !cfg.RelayOnly {
+	if cfg.normalizedMode() != "production" || cfg.AgentID != "Server-c24b5c0f" || cfg.AgentSecret == "" || !cfg.RelayOnly {
 		t.Fatalf("unexpected bootstrap config")
 	}
 	servers := bootstrapWebRTCServers(cfg)
 	if len(servers) != 1 || len(servers[0].URLs) != 1 || servers[0].Username == "" {
 		t.Fatalf("TURN configuration was not mapped")
+	}
+}
+
+func TestReadBootstrapAcceptsCredentialFreeCanary(t *testing.T) {
+	raw := `{
+		"mode":"canary",
+		"signal_url":"https://canary.example.test",
+		"agent_label":"Server canary"
+	}`
+	cfg, err := readBootstrap(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("canary bootstrap rejected: %v", err)
+	}
+	if cfg.Mode != "canary" || cfg.AgentID != "" || cfg.AgentSecret != "" || cfg.AgentLabel != "Server canary" {
+		t.Fatalf("unexpected canary bootstrap: %#v", cfg)
+	}
+}
+
+func TestCanaryBootstrapRejectsProductionCredentials(t *testing.T) {
+	for _, cfg := range []bootstrapConfig{
+		{Mode: "canary", SignalURL: "https://canary.example.test", AgentLabel: "Server", AgentID: "agent"},
+		{Mode: "canary", SignalURL: "https://canary.example.test", AgentLabel: "Server", AgentSecret: "secret"},
+	} {
+		if err := validateBootstrap(cfg); err == nil {
+			t.Fatalf("canary bootstrap accepted production credential fields: %#v", cfg)
+		}
 	}
 }
 
@@ -64,5 +90,12 @@ func TestBootstrapRelayOnlyRequiresServer(t *testing.T) {
 	}
 	if err := validateBootstrap(cfg); err == nil {
 		t.Fatal("relay-only bootstrap without TURN/ICE server must be rejected")
+	}
+}
+
+func TestBootstrapRejectsUnknownMode(t *testing.T) {
+	cfg := bootstrapConfig{Mode: "hidden", SignalURL: "https://example.test", AgentID: "agent", AgentSecret: "secret"}
+	if err := validateBootstrap(cfg); err == nil {
+		t.Fatal("unsupported bootstrap mode must be rejected")
 	}
 }
