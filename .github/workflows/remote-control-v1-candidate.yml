@@ -39,8 +39,23 @@ permissions:
 jobs:
   build-screen-only-candidate:
     runs-on: windows-latest
+    env:
+      ZHIROX_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      ZHIROX_SOURCE_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      ZHIROX_SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact source checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          $expected = "$env:ZHIROX_SOURCE_COMMIT".Trim().ToLowerInvariant()
+          if ($actual -ne $expected) { throw "source checkout mismatch: $actual != $expected" }
 
       - uses: actions/setup-go@v5
         with:
@@ -158,9 +173,9 @@ jobs:
           }
           $manifest = [ordered]@{
             bundle = 'zhirox-remote-control-v1-screen-only'
-            source_repository = '${{ github.repository }}'
-            source_ref = '${{ github.ref }}'
-            source_commit = '${{ github.sha }}'
+            source_repository = $env:ZHIROX_SOURCE_REPOSITORY
+            source_ref = $env:ZHIROX_SOURCE_REF
+            source_commit = $env:ZHIROX_SOURCE_COMMIT
             workflow_run_id = '${{ github.run_id }}'
             base_version = '5.1.6'
             architecture = 'windows-amd64'
@@ -188,14 +203,15 @@ jobs:
           $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 'remote-candidate\manifest.json'
           (Get-FileHash -Algorithm SHA256 'remote-candidate\manifest.json').Hash.ToLowerInvariant() | Set-Content -Encoding ASCII 'remote-candidate\manifest.json.sha256'
 
-      - name: Verify bundle hashes
+      - name: Verify bundle hashes and provenance
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $manifest = Get-Content 'remote-candidate\manifest.json' -Raw | ConvertFrom-Json
           if ($manifest.publishable -ne $false -or $manifest.production_enabled -ne $false) { throw 'candidate bundle must remain non-publishable' }
-          if ($manifest.source_commit -ne '${{ github.sha }}') { throw 'candidate source commit provenance mismatch' }
-          if ($manifest.source_repository -ne '${{ github.repository }}') { throw 'candidate repository provenance mismatch' }
+          if ($manifest.source_commit -ne $env:ZHIROX_SOURCE_COMMIT) { throw 'candidate source commit provenance mismatch' }
+          if ($manifest.source_repository -ne $env:ZHIROX_SOURCE_REPOSITORY) { throw 'candidate repository provenance mismatch' }
+          if ($manifest.source_ref -ne $env:ZHIROX_SOURCE_REF) { throw 'candidate ref provenance mismatch' }
           if ($manifest.credential_transport -ne 'anonymous_pipe_stdin') { throw 'candidate credential transport must be pipe-only' }
           if ($manifest.secret_environment_allowed -ne $false -or $manifest.turn_credentials_environment_allowed -ne $false) { throw 'candidate must refuse secret-bearing environment config' }
           if ($manifest.interactive_capture_helper -ne $true -or $manifest.capture_helper_auth_credentials -ne $false) { throw 'interactive capture helper isolation manifest invariant failed' }
@@ -211,6 +227,6 @@ jobs:
       - name: Upload screen-only candidate artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Zhirox-Remote-Control-v1-screen-only-${{ github.sha }}
+          name: Zhirox-Remote-Control-v1-screen-only-${{ github.event.pull_request.head.sha || github.sha }}
           path: remote-candidate/*
           if-no-files-found: error
