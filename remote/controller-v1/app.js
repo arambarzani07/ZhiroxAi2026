@@ -31,8 +31,21 @@ async function api(path, init = {}) {
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-  if (!res.ok) throw new Error(`${res.status} ${data?.error || res.statusText}${data?.detail ? `: ${data.detail}` : ""}`);
+  if (!res.ok) throw new Error(`${res.status} ${data?.error || res.statusText}`);
   return data;
+}
+
+function secureEndpoint(raw) {
+  const value = raw.trim().replace(/\/+$/, "");
+  let u;
+  try { u = new URL(value); } catch { throw new Error("signaling endpoint must be an absolute URL"); }
+  const local = u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "[::1]" || u.hostname === "::1";
+  if (u.protocol !== "https:" && !(local && u.protocol === "http:")) {
+    throw new Error("signaling endpoint must use HTTPS (HTTP is allowed only for localhost development)");
+  }
+  if (u.username || u.password) throw new Error("signaling endpoint must not contain URL credentials");
+  if (u.search || u.hash) throw new Error("signaling endpoint must not contain query or fragment data");
+  return value;
 }
 
 function readICEServers() {
@@ -44,10 +57,10 @@ function readICEServers() {
 }
 
 async function requestSession() {
-  const endpoint = endpointEl.value.trim().replace(/\/+$/, "");
+  const endpoint = secureEndpoint(endpointEl.value);
   const token = tokenEl.value.trim();
   const agent = agentEl.value.trim();
-  if (!endpoint || !token || !agent) throw new Error("endpoint, controller token and agent id are required");
+  if (!token || !agent) throw new Error("controller token and agent id are required");
   baseURL = endpoint;
   controllerToken = token; // memory only; never persisted to local/session storage.
 
