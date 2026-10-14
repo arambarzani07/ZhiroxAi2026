@@ -1,0 +1,224 @@
+name: Remote Control v1 DB Schema
+
+on:
+  push:
+    branches:
+      - feature/full-remote-control-v1
+    paths:
+      - '.github/workflows/remote-control-v1-db-schema.yml'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/remote-control-v1-db-schema.yml'
+      - 'ops/supabase/remote_control_v1_schema.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-postgres-schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: zhiroxtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d zhiroxtest"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: zhiroxtest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare isolated Supabase-compatible prerequisites
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin
+            if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+          end $$;
+
+          create table public.pc_relay_agents (
+            agent_id text primary key
+          );
+          SQL
+
+      - name: Apply remote-control schema
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f ops/supabase/remote_control_v1_schema.sql
+
+      - name: Verify RLS and no direct client policies
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare bad_count integer;
+          begin
+            select count(*) into bad_count
+            from pg_class c
+            join pg_namespace n on n.oid=c.relnamespace
+            where n.nspname='public'
+              and c.relname in ('pc_remote_controller_tokens','pc_remote_sessions','pc_remote_signals','pc_remote_audit')
+              and not c.relrowsecurity;
+            if bad_count <> 0 then raise exception 'one or more remote-control tables do not have RLS enabled'; end if;
+
+            select count(*) into bad_count
+            from pg_policies
+            where schemaname='public'
+              and tablename in ('pc_remote_controller_tokens','pc_remote_sessions','pc_remote_signals','pc_remote_audit');
+            if bad_count <> 0 then raise exception 'v1 remote-control tables must have no direct RLS client policies'; end if;
+          end $$;
+          SQL
+
+      - name: Verify controller token scope and TTL bounds
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          insert into public.pc_relay_agents(agent_id) values ('agent-test-1');
+
+          insert into public.pc_remote_controller_tokens(
+            token_hash, agent_id, label, allow_screen_stream, expires_at
+          ) values (
+            repeat('a',64), 'agent-test-1', 'ci-controller', true, now() + interval '1 hour'
+          );
+
+          do $$
+          begin
+            begin
+              insert into public.pc_remote_controller_tokens(
+                token_hash, agent_id, label, allow_screen_stream, expires_at
+              ) values (
+                repeat('b',64), 'agent-test-1', 'bad-ttl', true, now() + interval '25 hours'
+              );
+              raise exception 'token TTL >24h unexpectedly accepted';
+            exception when check_violation then null;
+            end;
+
+            begin
+              insert into public.pc_remote_controller_tokens(
+                token_hash, agent_id, label, allow_screen_stream, expires_at
+              ) values (
+                'not-a-sha256', 'agent-test-1', 'bad-hash', true, now() + interval '1 hour'
+              );
+              raise exception 'invalid token hash unexpectedly accepted';
+            exception when check_violation then null;
+            end;
+          end $$;
+          SQL
+
+      - name: Verify screen-only session constraints and one-controller lock
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          insert into public.pc_remote_sessions(
+            agent_id, controller_token_hash, state, requested_capabilities, expires_at
+          ) values (
+            'agent-test-1', repeat('a',64), 'requested',
+            '{"screen_stream":true,"mouse":false,"keyboard":false,"clipboard":false,"file_transfer":false,"audio":false}'::jsonb,
+            now() + interval '20 minutes'
+          );
+
+          do $$
+          begin
+            begin
+              insert into public.pc_remote_sessions(
+                agent_id, controller_token_hash, state, requested_capabilities, expires_at
+              ) values (
+                'agent-test-1', repeat('a',64), 'requested',
+                '{"screen_stream":true,"mouse":false,"keyboard":false,"clipboard":false,"file_transfer":false,"audio":false}'::jsonb,
+                now() + interval '20 minutes'
+              );
+              raise exception 'second live controller session unexpectedly accepted';
+            exception when unique_violation then null;
+            end;
+
+            begin
+              update public.pc_remote_sessions set
+                requested_capabilities='{"screen_stream":true,"mouse":true,"keyboard":false,"clipboard":false,"file_transfer":false,"audio":false}'::jsonb
+              where agent_id='agent-test-1';
+              raise exception 'mouse capability unexpectedly accepted';
+            exception when check_violation then null;
+            end;
+          end $$;
+
+          update public.pc_remote_sessions
+             set state='ended', ended_at=now(), reason='ci-complete'
+           where agent_id='agent-test-1';
+
+          insert into public.pc_remote_sessions(
+            agent_id, controller_token_hash, state, requested_capabilities, expires_at
+          ) values (
+            'agent-test-1', repeat('a',64), 'requested',
+            '{"screen_stream":true,"mouse":false,"keyboard":false,"clipboard":false,"file_transfer":false,"audio":false}'::jsonb,
+            now() + interval '20 minutes'
+          );
+          SQL
+
+      - name: Verify signaling payload bounds and allowed kinds
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare sid uuid;
+          begin
+            select id into sid
+            from public.pc_remote_sessions
+            where agent_id='agent-test-1' and state='requested'
+            order by requested_at desc
+            limit 1;
+
+            insert into public.pc_remote_signals(session_id,sender,kind,payload)
+            values (sid,'controller','offer','{"type":"offer"}'::jsonb);
+
+            begin
+              insert into public.pc_remote_signals(session_id,sender,kind,payload)
+              values (sid,'controller','input_event','{}'::jsonb);
+              raise exception 'unsupported signaling kind unexpectedly accepted';
+            exception when check_violation then null;
+            end;
+
+            begin
+              insert into public.pc_remote_signals(session_id,sender,kind,payload)
+              values (sid,'controller','offer',jsonb_build_object('blob',repeat('x',270000)));
+              raise exception 'oversized signaling payload unexpectedly accepted';
+            exception when check_violation then null;
+            end;
+          end $$;
+          SQL
+
+      - name: Verify anon/authenticated have no table privileges
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare r record;
+          begin
+            for r in
+              select unnest(array['pc_remote_controller_tokens','pc_remote_sessions','pc_remote_signals','pc_remote_audit']) as rel
+            loop
+              if has_table_privilege('anon', 'public.'||r.rel, 'SELECT')
+                 or has_table_privilege('authenticated', 'public.'||r.rel, 'SELECT')
+                 or has_table_privilege('anon', 'public.'||r.rel, 'INSERT')
+                 or has_table_privilege('authenticated', 'public.'||r.rel, 'INSERT') then
+                raise exception 'direct client privilege unexpectedly present on %', r.rel;
+              end if;
+            end loop;
+          end $$;
+          SQL
