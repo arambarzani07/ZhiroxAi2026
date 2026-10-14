@@ -3,11 +3,13 @@ const endpointEl = $("endpoint");
 const tokenEl = $("token");
 const agentEl = $("agent");
 const labelEl = $("label");
-const iceEl = $("ice");
 const connectBtn = $("connect");
 const disconnectBtn = $("disconnect");
 const videoEl = $("screen");
 const statusEl = $("status");
+
+const API_TIMEOUT_MS = 12_000;
+const SIGNALING_PATH = "/functions/v1/zhirox-pc-remote-signaling-v1";
 
 let pc = null;
 let sessionId = "";
@@ -27,12 +29,26 @@ function authHeaders(json = false) {
 }
 
 async function api(path, init = {}) {
-  const res = await fetch(`${baseURL}${path}`, init);
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-  if (!res.ok) throw new Error(`${res.status} ${data?.error || res.statusText}`);
-  return data;
+  const aborter = new AbortController();
+  const timer = setTimeout(() => aborter.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseURL}${path}`, {
+      ...init,
+      signal: aborter.signal,
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (!res.ok) throw new Error(`${res.status} ${data?.error || res.statusText}`);
+    return data;
+  } catch (err) {
+    if (err?.name === "AbortError") throw new Error("signaling request timed out");
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function secureEndpoint(raw) {
@@ -45,32 +61,38 @@ function secureEndpoint(raw) {
   }
   if (u.username || u.password) throw new Error("signaling endpoint must not contain URL credentials");
   if (u.search || u.hash) throw new Error("signaling endpoint must not contain query or fragment data");
+  if (u.pathname.replace(/\/+$/, "") !== SIGNALING_PATH) {
+    throw new Error("signaling endpoint path is not the approved Zhirox remote-signaling function");
+  }
   return value;
 }
 
-function readICEServers() {
-  const raw = iceEl.value.trim();
-  if (!raw) return [];
-  const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed)) throw new Error("ICE servers must be a JSON array");
-  return parsed;
+function randomFingerprint() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function cleanLabel(value) {
+  return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 120);
 }
 
 async function requestSession() {
   const endpoint = secureEndpoint(endpointEl.value);
   const token = tokenEl.value.trim();
   const agent = agentEl.value.trim();
-  if (!token || !agent) throw new Error("controller token and agent id are required");
+  if (token.length < 32 || token.length > 512) throw new Error("controller token length is invalid");
+  if (!agent || agent.length > 160 || !/^[A-Za-z0-9._:-]+$/.test(agent)) throw new Error("agent id is invalid");
   baseURL = endpoint;
-  controllerToken = token; // memory only; never persisted to local/session storage.
+  controllerToken = token; // Memory only; never persisted to local/session storage.
 
   const data = await api("/api/sessions", {
     method: "POST",
     headers: authHeaders(true),
     body: JSON.stringify({
       agent_id: agent,
-      controller_label: labelEl.value.trim().slice(0, 120),
-      controller_fingerprint: `${navigator.platform || "browser"}|${navigator.userAgent.slice(0, 80)}`,
+      controller_label: cleanLabel(labelEl.value),
+      controller_fingerprint: randomFingerprint(),
       capabilities: { screen_stream: true },
     }),
   });
@@ -109,7 +131,9 @@ async function postSignal(kind, payload) {
 }
 
 async function setupPeer() {
-  pc = new RTCPeerConnection({ iceServers: readICEServers(), bundlePolicy: "max-bundle" });
+  // v1 canary is deliberately direct-ICE only. TURN is enabled only after the
+  // separate credentialed relay gate; users never paste TURN secrets into DOM.
+  pc = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: "all", bundlePolicy: "max-bundle" });
   const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
   preferH264(transceiver);
 
@@ -127,9 +151,8 @@ async function setupPeer() {
     if (["failed", "closed"].includes(pc.connectionState)) disconnect(false).catch(() => {});
   };
   pc.ondatachannel = (event) => {
-    // Phase 1/2 deliberately does not send keyboard/mouse events.
-    status(`control channel received (${event.channel.label}); input remains disabled`);
-    event.channel.onmessage = () => {};
+    status(`control channel refused (${event.channel.label}); screen-only policy is active`);
+    try { event.channel.close(); } catch (_) {}
   };
 
   const offer = await pc.createOffer({ offerToReceiveVideo: true });
@@ -209,5 +232,7 @@ connectBtn.addEventListener("click", () => connect());
 disconnectBtn.addEventListener("click", () => disconnect(true));
 window.addEventListener("beforeunload", () => {
   polling = false;
+  controllerToken = "";
+  tokenEl.value = "";
   if (pc) pc.close();
 });
