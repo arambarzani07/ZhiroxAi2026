@@ -16,7 +16,7 @@ GitHub Actions candidate artifact:
 - artifact digest: `sha256:8db27f233d81247d213a7a3782476c4643205fc7af5990909c355253cfedeb34`
 - manifest remains `publishable:false` and `production_enabled:false`
 
-After the verified runtime candidate, only CI/documentation changes have been made. Runtime source remains unchanged from the verified candidate.
+Post-candidate changes have been limited to CI and documentation. Runtime source remains unchanged from the verified candidate.
 
 ## Architecture
 
@@ -46,16 +46,16 @@ Supabase never proxies live screen/video frames.
 
 ## Dedicated controller authorization
 
-Remote-control browser sessions no longer reuse generic relay connector tokens.
+Remote-control browser sessions do not reuse generic relay connector tokens.
 
 `pc_remote_controller_tokens` provides dedicated, short-lived controller authorization:
 - token stored as SHA-256 only;
-- token is bound to exactly one `agent_id`;
-- screen-stream permission is explicit;
-- maximum token TTL is 24 hours;
+- token bound to exactly one `agent_id`;
+- screen-stream permission explicit;
+- maximum token TTL 24 hours;
 - revoked/expired tokens fail closed.
 
-PostgreSQL also enforces controller-agent scope with a composite foreign key, so a token for PC-A cannot create a session for PC-B even if an application-layer regression occurs.
+PostgreSQL also enforces controller-agent scope with a composite foreign key.
 
 ## Database defense in depth
 
@@ -65,105 +65,82 @@ The remote-control schema includes:
 - `pc_remote_signals`
 - `pc_remote_audit`
 
-Controls include:
-- RLS enabled on all remote tables;
-- no direct client RLS policies;
-- `anon` and `authenticated` privileges revoked;
-- one live session per agent via partial unique index;
-- 30-minute session TTL constraint;
-- screen-only capability constraints in PostgreSQL;
-- signal JSON payload capped at 256 KiB;
-- audit metadata bounded;
-- controller token TTL capped at 24 hours;
-- cross-agent token/session binding enforced in PostgreSQL.
+Controls include RLS on every table, no direct client policies, revoked `anon`/`authenticated` access, one live session per agent, 30-minute session TTL, screen-only capability checks, bounded signal/audit payloads, 24-hour controller-token TTL, and DB-level cross-agent scope enforcement.
 
-The schema is **not deployed in production**. It was executed successfully in an isolated PostgreSQL 17 GitHub Actions service, including executable tests for RLS/revokes, one-live-session, cross-agent scope, capability refusal and token TTL.
+The schema is **not deployed in production**. It passed executable tests in isolated PostgreSQL 17 CI for RLS/revokes, single-live-session, cross-agent scope, capability refusal and token TTL.
 
 ## Signaling hardening
 
 The Edge Function candidate:
-- pins `@supabase/supabase-js` to an exact version;
-- uses a configured exact browser Origin allowlist;
-- native-agent requests without browser Origin remain supported;
-- rejects oversized request bodies;
-- validates screen-only capabilities;
-- authenticates dedicated agent-scoped controller tokens;
-- reuses existing agent relay authentication;
-- checks target agent freshness and health;
-- expires stale approval/session rows;
-- uses conditional state transitions;
-- emits opaque HTTP 500 responses with request IDs rather than database details;
-- uses `Cache-Control: no-store` and browser hardening headers.
+- pins `@supabase/supabase-js` exactly;
+- exact browser Origin allowlist;
+- bounded request bodies;
+- dedicated agent-scoped controller tokens;
+- existing agent relay authentication;
+- target-agent freshness/health checks;
+- approval/session expiry;
+- conditional state transitions;
+- opaque internal errors;
+- `no-store` and browser hardening headers.
 
 ## Credential transport
 
-The standalone service-side remote agent refuses secret-bearing environment configuration.
+The service-side remote agent refuses secret-bearing environment configuration.
 
-Agent secret and TURN credentials are supplied only through a bounded anonymous-pipe/stdin bootstrap:
-- maximum bootstrap size 64 KiB;
-- unknown JSON fields are rejected;
-- only STUN/STUNS/TURN/TURNS ICE schemes are allowed;
-- TURN relay-only mode requires an ICE/TURN server;
-- secret-bearing environment variables are explicitly refused.
+Agent secret and TURN credentials are supplied only through a bounded anonymous-pipe/stdin bootstrap. Unknown fields and unsupported ICE schemes fail closed.
 
-A sanitized source audit verified that the existing v5.1.6 Supervisor loads relay credentials locally with `pcOSLoadRelayCredentials()` and keeps them in memory for relay requests. The credential-audit workflow passed without printing secret values.
+A sanitized v5.1.6 source audit verified that the Supervisor loads relay credentials locally through `pcOSLoadRelayCredentials()` and retains them in memory for relay requests. The corrected credential-source audit workflow passed without printing secret values.
 
 ## Interactive capture isolation
 
-Direct service/Session-0 desktop capture is not used by the Windows orchestrator.
+Direct service/Session-0 desktop capture is not used.
 
-`ZhiroxRemoteScreenAgent.exe` launches the same SHA-pinned executable into the active signed-in Windows session in media-only helper mode:
+The SHA-pinned remote-agent executable launches itself in media-only helper mode into the active signed-in Windows session:
 - WTS active-console token;
 - `CreateProcessAsUserW` on `winsta0\default`;
-- explicit `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` limits inherited handles to the H.264 pipe;
-- `CreateEnvironmentBlock` creates the signed-in user's environment instead of inheriting the service environment;
-- executable SHA-256 is reverified immediately before launch;
-- helper accepts only pipe handle, encoder path/hash, FPS and bitrate;
-- helper has no signaling URL, agent secret, controller token or TURN credential;
-- helper has no input/clipboard/file-transfer capability.
+- explicit handle list: H.264 output pipe only;
+- signed-in user environment instead of service environment;
+- executable SHA reverified before launch;
+- helper receives only pipe handle, encoder path/hash, FPS and bitrate;
+- helper receives no auth/signaling/TURN credentials;
+- helper has no input, clipboard or file-transfer capability.
 
-Local media protocol:
-- magic/version `ZHXH2641`;
-- bounded width/height/FPS header;
-- length-prefixed H.264 access units;
-- 4 MiB maximum access unit;
-- invalid magic/geometry/FPS/length fails before unsafe allocation.
+The local media IPC uses bounded `ZHXH2641` framing and caps H.264 access units at 4 MiB.
 
 ## Verified media path
 
-- reusable top-down 32-bit DIB capture using `CreateDIBSection` + `BitBlt`;
+- DIB `CreateDIBSection` + `BitBlt` capture;
 - BGRA -> Media Foundation H.264;
-- bounded FPS, bitrate and keyframe cadence;
-- Pion H.264 WebRTC track with packetization-mode=1;
-- real Windows encoder probe passed;
-- direct-ICE H.264 RTP delivery test passed;
-- consent helper build and Windows compile/vet passed;
-- interactive-helper isolation candidate build passed.
+- bounded FPS/bitrate/keyframe cadence;
+- Pion H.264 WebRTC track, packetization-mode=1;
+- Windows encoder probe passed;
+- direct-ICE RTP delivery passed;
+- consent helper, compile/vet and interactive-helper isolation candidate passed.
 
-Credentialed forced-TURN relay has **not** yet been verified and must not be reported as passed.
+Credentialed forced-TURN relay has **not** yet been verified.
 
 ## Current production gates
 
-Production remains unchanged at Zhirox v5.1.6. The remote-control control-plane tables/function are not deployed.
+Production remains unchanged at Zhirox v5.1.6. Remote-control database objects/function are not deployed.
 
-Latest live-PC preflight showed:
-- version: `5.1.6`
-- health score: `85`
-- alert: `disk_low`
-- C: free space: approximately `15.97 GB` / `14.97%`
+Latest live-PC preflight:
+- version `5.1.6`
+- health `85`
+- `disk_low`
+- C: approximately `15.97 GB` / `14.97%` free
 
-Therefore remote-control deployment/signing/promotion is fail-closed until the PC health/disk gate is restored.
+Remote-control signing/promotion/deployment remains blocked until the live health/disk gate is restored.
 
-No Supabase preview branch has been created. Creating a Supabase branch may incur resource cost, so branch creation requires an explicit cost-approved gate.
+No Supabase preview branch has been created because branch/resource creation can incur cost and requires explicit cost approval.
 
-## Remaining gates before production
+## Remaining gates
 
 1. Restore live PC disk/health gate.
-2. Obtain an explicitly approved isolated Supabase branch/project and deploy the hardened schema/signaling function there.
-3. Run Supabase security/performance advisors on that isolated deployment.
-4. Run a real browser -> real target Windows attended screen-stream session using the verified candidate runtime.
-5. Run credentialed forced-TURN relay testing.
-6. Verify controller hangup, local emergency disconnect, approval expiry, session expiry, failure and reconnect behavior on the real target.
-7. Build a new immutable production release identity (do not replace v5.1.6), sign under the current Ed25519 trust anchor and pass existing updater/rollback health gates.
-8. Controlled screen-only rollout followed by live audit.
-9. Only after screen-only stability: separately reviewed mouse/keyboard input-control phase.
+2. Obtain cost-approved isolated Supabase branch/project.
+3. Deploy hardened control plane there and run Supabase advisors.
+4. Real browser -> real Windows attended screen stream.
+5. Credentialed forced-TURN relay test.
+6. Real hangup/emergency-disconnect/expiry/failure/reconnect tests.
+7. New immutable signed release identity after v5.1.6, preserving Ed25519 trust/rollback gates.
+8. Controlled screen-only rollout + live audit.
+9. Mouse/keyboard only as a later separately reviewed phase.
