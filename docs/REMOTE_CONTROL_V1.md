@@ -16,7 +16,7 @@ GitHub Actions candidate artifact:
 - artifact digest: `sha256:8db27f233d81247d213a7a3782476c4643205fc7af5990909c355253cfedeb34`
 - manifest remains `publishable:false` and `production_enabled:false`
 
-Current PR head `0a1c99df6c84c1dace8467ccc92034acb7822c4a` changes only CI workflow files after the runtime candidate commit; runtime source is unchanged from the verified candidate.
+After the verified runtime candidate, only CI/documentation changes have been made. Runtime source remains unchanged from the verified candidate.
 
 ## Architecture
 
