@@ -24,6 +24,7 @@ type PendingSession struct {
 	RequestedAt           string         `json:"requested_at"`
 	ExpiresAt             string         `json:"expires_at"`
 	RequestedCapabilities map[string]any `json:"requested_capabilities"`
+	ControllerID          string         `json:"controller_id"`
 	ControllerLabel       string         `json:"controller_label"`
 	ControllerFingerprint string         `json:"controller_fingerprint"`
 }
