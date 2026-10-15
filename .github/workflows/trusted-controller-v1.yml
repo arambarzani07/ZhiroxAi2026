@@ -11,6 +11,8 @@ on:
       - 'remote/agent-v1/trusted_controller_lifecycle_v1_test.go'
       - 'remote/agent-v1/trusted_controller_session_v1.go'
       - 'remote/agent-v1/trusted_controller_session_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_replay_v1.go'
+      - 'remote/agent-v1/trusted_controller_replay_v1_test.go'
       - '.github/workflows/trusted-controller-v1.yml'
   workflow_dispatch:
 
@@ -46,7 +48,8 @@ jobs:
           $auth = Get-Content 'remote/agent-v1/trusted_controller_v1.go' -Raw
           $lifecycle = Get-Content 'remote/agent-v1/trusted_controller_lifecycle_v1.go' -Raw
           $session = Get-Content 'remote/agent-v1/trusted_controller_session_v1.go' -Raw
-          $combined = $auth + "`n" + $lifecycle + "`n" + $session
+          $replay = Get-Content 'remote/agent-v1/trusted_controller_replay_v1.go' -Raw
+          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay
           if ($auth -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
           if ($auth -notmatch 'AgentID:\s+challenge.AgentID' -or $auth -notmatch 'SessionID:\s+challenge.SessionID') { throw 'challenge-to-session binding missing' }
           if ($auth -notmatch 'Revoked') { throw 'revocation gate missing' }
@@ -58,6 +61,8 @@ jobs:
           if ($lifecycle -notmatch 'TrustedAuditEnrolled' -or $lifecycle -notmatch 'TrustedAuditRevoked') { throw 'enrollment/revocation audit events missing' }
           if ($session -notmatch 'TrustedSessionCapabilityRequest') { throw 'explicit requested capability contract missing' }
           if ($session -notmatch 'requested.Mouse && !auth.Mouse' -or $session -notmatch 'requested.Keyboard && !auth.Keyboard') { throw 'capability escalation guard missing' }
+          if ($replay -notmatch 'TrustedChallengeReplayGuard' -or $replay -notmatch 'ConsumeTrustedChallenge') { throw 'atomic replay-consumption contract missing' }
+          if ($replay -notmatch 'VerifyTrustedControllerOnce') { throw 'one-time trusted verification entry point missing' }
           if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'OS input execution or arbitrary command execution is forbidden in auth groundwork'
           }
