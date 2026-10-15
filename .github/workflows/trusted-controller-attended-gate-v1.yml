@@ -1,0 +1,57 @@
+name: Trusted Controller Attended Gate v1
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/trusted_controller_attended_gate_v1.go'
+      - 'remote/agent-v1/trusted_controller_attended_gate_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_permit_v1.go'
+      - 'remote/agent-v1/trusted_controller_permit_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_arbiter_v1.go'
+      - '.github/workflows/trusted-controller-attended-gate-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Run remote agent tests
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Enforce attended approval boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gate = Get-Content 'remote/agent-v1/trusted_controller_attended_gate_v1.go' -Raw
+          $permit = Get-Content 'remote/agent-v1/trusted_controller_permit_v1.go' -Raw
+          $combined = $gate + "`n" + $permit
+          if ($gate -notmatch 'InteractiveUser') { throw 'interactive local approval marker missing' }
+          if ($gate -notmatch 'explicit interactive local approval is required') { throw 'explicit local approval fail-closed check missing' }
+          if ($gate -notmatch 'LocalInputApprovalTTL') { throw 'bounded local approval TTL missing' }
+          if ($gate -notmatch 'permit.Validate\(arbiter, now\)') { throw 'continuous trusted permit validation missing' }
+          if ($gate -notmatch 'approval.ControllerID != permit.ControllerID' -or $gate -notmatch 'approval.SessionID != permit.SessionID') { throw 'local approval identity binding missing' }
+          if ($gate -notmatch 'permit.Mouse && !approval.Mouse' -or $gate -notmatch 'permit.Keyboard && !approval.Keyboard') { throw 'local approval exact capability binding missing' }
+          if ($gate -match '\.Activate\(') { throw 'attended policy layer must not activate dispatcher' }
+          if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'OS input execution or arbitrary command execution is forbidden in attended gate groundwork'
+          }
