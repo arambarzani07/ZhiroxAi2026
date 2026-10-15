@@ -6,9 +6,11 @@ import (
 	"time"
 )
 
+const trustedTestSessionID = "session-00000000000000000001"
+
 func trustedPending(now time.Time) PendingSession {
 	return PendingSession{
-		ID:                    "session-1",
+		ID:                    trustedTestSessionID,
 		State:                 "pending",
 		ExpiresAt:             now.Add(5 * time.Minute).Format(time.RFC3339Nano),
 		ControllerID:          "controller-1",
@@ -28,7 +30,7 @@ func trustedGrantForSignaling(now time.Time) TrustedSessionGrant {
 	return TrustedSessionGrant{
 		ControllerID: "controller-1",
 		AgentID:      "agent-1",
-		SessionID:    "session-1",
+		SessionID:    trustedTestSessionID,
 		Fingerprint:  strings.Repeat("a", 64),
 		Screen:       true,
 		Mouse:        true,
