@@ -30,6 +30,14 @@ The trusted permit and local approval must match the same controller, agent, ses
 
 This policy layer does not call `ControlDispatcher.Activate()` and does not execute platform-specific input.
 
+## Runtime and WebRTC binding
+
+`PrepareAttendedControlRuntime` revalidates the attended authorization, starts the visible active-control indicator, creates the per-message authorization gate, and forces the dispatcher inactive.
+
+`NewAttendedAgentSession` is the fail-closed bridge from that prepared runtime to `AgentSession`. The WebRTC session must inherit the exact dispatcher and per-message gate owned by the attended runtime. A caller cannot substitute a different dispatcher or supply a different control gate after approval.
+
+The DataChannel therefore reaches only the runtime-owned abstract dispatcher after the same attended authorization is revalidated. The dispatcher remains inactive in this phase, and closing either the WebRTC session or attended runtime leaves it deactivated.
+
 ## Protocol scaffold
 
 `remote/agent-v1/control_protocol_v2.go` defines protocol version 2 and validates pointer move, pointer button, pointer wheel, and key events. The current scaffold does not execute OS input.
