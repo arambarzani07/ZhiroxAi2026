@@ -18,6 +18,8 @@ type AttendedControlRuntime struct {
 	gate       *AttendedControlMessageGate
 	done       chan error
 	stopOnce   sync.Once
+	stateMu    sync.RWMutex
+	active     bool
 }
 
 type AttendedControlRuntimeConfig struct {
@@ -80,6 +82,7 @@ func PrepareAttendedControlRuntime(ctx context.Context, cfg AttendedControlRunti
 		indicator:  indicator,
 		gate:       gate,
 		done:       make(chan error, 1),
+		active:     true,
 	}
 	go r.watch(ctx)
 	return r, nil
@@ -102,6 +105,9 @@ func (r *AttendedControlRuntime) finish(err error, stopIndicator bool) {
 		return
 	}
 	r.stopOnce.Do(func() {
+		r.stateMu.Lock()
+		r.active = false
+		r.stateMu.Unlock()
 		if r.dispatcher != nil {
 			r.dispatcher.Deactivate()
 		}
@@ -113,6 +119,15 @@ func (r *AttendedControlRuntime) finish(err error, stopIndicator bool) {
 		r.done <- err
 		close(r.done)
 	})
+}
+
+func (r *AttendedControlRuntime) isActive() bool {
+	if r == nil {
+		return false
+	}
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return r.active
 }
 
 func (r *AttendedControlRuntime) ControlGate() ControlMessageGate {
