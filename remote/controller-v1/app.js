@@ -5,11 +5,15 @@ const agentEl = $("agent");
 const labelEl = $("label");
 const connectBtn = $("connect");
 const disconnectBtn = $("disconnect");
+const armInputBtn = $("arm-input");
+const disarmInputBtn = $("disarm-input");
+const inputStateEl = $("input-state");
 const videoEl = $("screen");
 const statusEl = $("status");
 
 const API_TIMEOUT_MS = 12_000;
 const SIGNALING_PATH = "/functions/v1/zhirox-pc-remote-signaling-v1";
+const CONTROL_CHANNEL = "zhirox-control";
 
 let pc = null;
 let sessionId = "";
@@ -17,9 +21,16 @@ let signalCursor = 0;
 let polling = false;
 let controllerToken = "";
 let baseURL = "";
+let controlChannel = null;
+let inputController = null;
+let unbindInput = null;
 
 function status(message) {
   statusEl.textContent = `${new Date().toISOString()}  ${message}\n${statusEl.textContent}`.slice(0, 12000);
+}
+
+function setInputState(message) {
+  inputStateEl.textContent = message;
 }
 
 function authHeaders(json = false) {
@@ -93,11 +104,18 @@ async function requestSession() {
       agent_id: agent,
       controller_label: cleanLabel(labelEl.value),
       controller_fingerprint: randomFingerprint(),
-      capabilities: { screen_stream: true },
+      capabilities: {
+        screen_stream: true,
+        mouse: true,
+        keyboard: true,
+        clipboard: false,
+        file_transfer: false,
+        audio: false,
+      },
     }),
   });
   sessionId = data.id;
-  status(`session requested: ${sessionId}; waiting for local approval on target PC`);
+  status(`attended session requested: ${sessionId}; waiting for explicit local approval on target PC`);
 }
 
 async function waitForApproval() {
@@ -130,9 +148,63 @@ async function postSignal(kind, payload) {
   });
 }
 
+function teardownInput(reason) {
+  try { if (inputController) inputController.disarm(reason || "session teardown"); } catch (_) {}
+  try { if (unbindInput) unbindInput(); } catch (_) {}
+  unbindInput = null;
+  inputController = null;
+  controlChannel = null;
+  armInputBtn.disabled = true;
+  disarmInputBtn.disabled = true;
+  setInputState("inactive");
+}
+
+function attachControlChannel(channel) {
+  if (!channel || channel.label !== CONTROL_CHANNEL) {
+    status(`unexpected data channel refused: ${channel?.label || "unknown"}`);
+    try { channel?.close(); } catch (_) {}
+    return;
+  }
+  if (!window.ZhiroxAttendedInputV1) {
+    status("attended input module unavailable; closing control channel");
+    try { channel.close(); } catch (_) {}
+    return;
+  }
+
+  controlChannel = channel;
+  inputController = window.ZhiroxAttendedInputV1.createAttendedInputController({
+    send: (payload) => {
+      if (!controlChannel || controlChannel.readyState !== "open") throw new Error("control channel is not open");
+      controlChannel.send(payload);
+    },
+    status: (message) => {
+      setInputState(message);
+      status(message);
+    },
+  });
+  unbindInput = window.ZhiroxAttendedInputV1.bindBrowserInput(videoEl, inputController, window);
+
+  channel.onopen = () => {
+    if (channel !== controlChannel || !inputController) return;
+    inputController.setAvailable(true);
+    armInputBtn.disabled = false;
+    disarmInputBtn.disabled = true;
+    setInputState("ready — click Arm input after target-side approval/indicator is visible");
+    status("attended control channel ready; input remains disarmed until explicit browser arm");
+  };
+  channel.onclose = () => {
+    if (channel !== controlChannel) return;
+    teardownInput("control channel closed");
+    status("control channel closed; browser input fail-closed");
+  };
+  channel.onerror = () => {
+    if (channel !== controlChannel) return;
+    teardownInput("control channel error");
+    status("control channel error; browser input fail-closed");
+  };
+}
+
 async function setupPeer() {
-  // v1 canary is deliberately direct-ICE only. TURN is enabled only after the
-  // separate credentialed relay gate; users never paste TURN secrets into DOM.
   pc = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: "all", bundlePolicy: "max-bundle" });
   const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
   preferH264(transceiver);
@@ -147,13 +219,16 @@ async function setupPeer() {
     postSignal("ice_candidate", event.candidate.toJSON()).catch((err) => status(`ICE send failed: ${err.message}`));
   };
   pc.onconnectionstatechange = () => {
-    status(`peer state: ${pc.connectionState}`);
-    if (["failed", "closed"].includes(pc.connectionState)) disconnect(false).catch(() => {});
+    const state = pc?.connectionState || "closed";
+    status(`peer state: ${state}`);
+    if (["disconnected", "failed", "closed"].includes(state)) {
+      try { if (inputController) inputController.disarm(`peer ${state}`); } catch (_) {}
+      armInputBtn.disabled = true;
+      disarmInputBtn.disabled = true;
+    }
+    if (["failed", "closed"].includes(state)) disconnect(false).catch(() => {});
   };
-  pc.ondatachannel = (event) => {
-    status(`control channel refused (${event.channel.label}); screen-only policy is active`);
-    try { event.channel.close(); } catch (_) {}
-  };
+  pc.ondatachannel = (event) => attachControlChannel(event.channel);
 
   const offer = await pc.createOffer({ offerToReceiveVideo: true });
   await pc.setLocalDescription(offer);
@@ -193,7 +268,7 @@ async function connect() {
   try {
     await requestSession();
     await waitForApproval();
-    status("target approved session");
+    status("target approved attended session");
     await setupPeer();
     consumeAgentSignals().catch((err) => {
       status(`signal polling failed: ${err.message}`);
@@ -207,6 +282,7 @@ async function connect() {
 
 async function disconnect(sendHangup = true) {
   polling = false;
+  teardownInput("disconnect");
   const oldSession = sessionId;
   if (sendHangup && oldSession && baseURL && controllerToken) {
     try { await postSignal("hangup", { reason: "controller_disconnect" }); } catch (_) {}
@@ -230,8 +306,25 @@ async function disconnect(sendHangup = true) {
 
 connectBtn.addEventListener("click", () => connect());
 disconnectBtn.addEventListener("click", () => disconnect(true));
+armInputBtn.addEventListener("click", () => {
+  try {
+    if (!inputController) throw new Error("control channel is not ready");
+    inputController.arm();
+    armInputBtn.disabled = true;
+    disarmInputBtn.disabled = false;
+    videoEl.focus({ preventScroll: true });
+  } catch (err) {
+    status(`input arm failed: ${err.message}`);
+  }
+});
+disarmInputBtn.addEventListener("click", () => {
+  try { if (inputController) inputController.disarm("manual browser disarm"); } catch (_) {}
+  armInputBtn.disabled = !controlChannel || controlChannel.readyState !== "open";
+  disarmInputBtn.disabled = true;
+});
 window.addEventListener("beforeunload", () => {
   polling = false;
+  try { if (inputController) inputController.disarm("page unload"); } catch (_) {}
   controllerToken = "";
   tokenEl.value = "";
   if (pc) pc.close();
