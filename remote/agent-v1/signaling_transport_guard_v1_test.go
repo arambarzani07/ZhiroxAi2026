@@ -107,7 +107,7 @@ func TestSignalTransportGuardRejectsFutureTimestampAndExpiredSession(t *testing.
 	guard := newTransportGuardForTest(t, now, nil)
 	future := Signal{
 		ID: 1, Sender: "controller", Kind: "hangup",
-		Payload: rawJSON(map[string]any{"reason": "done"}),
+		Payload:   rawJSON(map[string]any{"reason": "done"}),
 		CreatedAt: now.Add(maxSignalFutureClockSkew + time.Second).Format(time.RFC3339Nano),
 	}
 	if _, _, err := guard.FilterInboundBatch([]Signal{future}, 0, now); err == nil {
