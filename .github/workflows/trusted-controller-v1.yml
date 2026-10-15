@@ -7,6 +7,8 @@ on:
     paths:
       - 'remote/agent-v1/trusted_controller_v1.go'
       - 'remote/agent-v1/trusted_controller_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_lifecycle_v1.go'
+      - 'remote/agent-v1/trusted_controller_lifecycle_v1_test.go'
       - '.github/workflows/trusted-controller-v1.yml'
   workflow_dispatch:
 
@@ -39,11 +41,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $src = Get-Content 'remote/agent-v1/trusted_controller_v1.go' -Raw
-          if ($src -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
-          if ($src -notmatch 'Revoked') { throw 'revocation gate missing' }
-          if ($src -notmatch 'TrustedChallengeTTL') { throw 'bounded challenge TTL missing' }
-          if ($src -notmatch 'TrustedSessionTTL') { throw 'bounded session authorization TTL missing' }
-          if ($src -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+          $auth = Get-Content 'remote/agent-v1/trusted_controller_v1.go' -Raw
+          $lifecycle = Get-Content 'remote/agent-v1/trusted_controller_lifecycle_v1.go' -Raw
+          $combined = $auth + "`n" + $lifecycle
+          if ($auth -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
+          if ($auth -notmatch 'Revoked') { throw 'revocation gate missing' }
+          if ($auth -notmatch 'TrustedChallengeTTL') { throw 'bounded challenge TTL missing' }
+          if ($auth -notmatch 'TrustedSessionTTL') { throw 'bounded session authorization TTL missing' }
+          if ($lifecycle -notmatch 'OwnerAuthorizationID') { throw 'explicit owner authorization reference missing' }
+          if ($lifecycle -notmatch 'MarkTrustedControllerRevoked') { throw 'revocation persistence contract missing' }
+          if ($lifecycle -notmatch 'AppendTrustedControllerAudit') { throw 'audit persistence contract missing' }
+          if ($lifecycle -notmatch 'TrustedAuditEnrolled' -or $lifecycle -notmatch 'TrustedAuditRevoked') { throw 'enrollment/revocation audit events missing' }
+          if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'OS input execution or arbitrary command execution is forbidden in auth groundwork'
           }
