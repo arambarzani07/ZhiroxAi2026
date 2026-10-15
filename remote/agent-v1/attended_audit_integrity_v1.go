@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 	"sync"
-	"time"
 )
 
 // AttendedExecutionAuditIntegrityGuard serializes and validates the metadata-only
@@ -166,4 +165,3 @@ func (g *AttendedExecutionAuditIntegrityGuard) SnapshotState() (events int, sess
 }
 
 var _ AttendedExecutionAuditSink = (*AttendedExecutionAuditIntegrityGuard)(nil)
-var _ = time.Time{}
