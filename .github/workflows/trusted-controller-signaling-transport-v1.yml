@@ -1,0 +1,83 @@
+name: Trusted Controller Signaling Transport Gate v1
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/signaling_transport_guard_v1.go'
+      - 'remote/agent-v1/signaling_transport_guard_v1_test.go'
+      - 'remote/agent-v1/signaling_transport_remote_v1.go'
+      - 'remote/agent-v1/signaling_transport_remote_v1_test.go'
+      - '.github/workflows/trusted-controller-signaling-transport-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-transport:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Verify formatting, tests, and vet
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gofmt -w signaling_transport_guard_v1.go signaling_transport_guard_v1_test.go signaling_transport_remote_v1.go signaling_transport_remote_v1_test.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- signaling_transport_guard_v1.go signaling_transport_guard_v1_test.go signaling_transport_remote_v1.go signaling_transport_remote_v1_test.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Enforce signaling-only boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(
+            'remote/agent-v1/signaling_transport_guard_v1.go',
+            'remote/agent-v1/signaling_transport_remote_v1.go'
+          )
+          $all = ($files | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+          if ($all -notmatch 'SignalTransportGuard') { throw 'session-scoped signaling transport guard missing' }
+          if ($all -notmatch 'InboundRejected') { throw 'transport observability counters missing' }
+          if ($all -notmatch 'LastSignalID') { throw 'transport replay cursor state missing' }
+          if ($all -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'platform input injection or arbitrary command execution is forbidden in signaling transport boundary'
+          }
+          if ($all -match '\.Activate\(' -or $all -match '\.Dispatch\(' -or $all -match 'Execute\(') {
+            throw 'signaling transport boundary must remain non-executing'
+          }
+          if ($all -match 'ControlPayload|PointerX|PointerY|KeyCode|Clipboard|FileTransfer') {
+            throw 'signaling transport observability must remain metadata-only'
+          }
+
+  linux-race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Run race detector
+        working-directory: remote/agent-v1
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod
+          go test -race ./...
