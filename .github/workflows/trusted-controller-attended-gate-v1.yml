@@ -13,6 +13,8 @@ on:
       - 'remote/agent-v1/attended_control_message_gate_v1_test.go'
       - 'remote/agent-v1/attended_control_runtime_v1.go'
       - 'remote/agent-v1/attended_control_runtime_v1_test.go'
+      - 'remote/agent-v1/attended_agent_session_v1.go'
+      - 'remote/agent-v1/attended_agent_session_v1_test.go'
       - 'remote/agent-v1/consent_input_windows.go'
       - 'remote/agent-v1/session.go'
       - 'remote/agent-v1/session_control_gate_v2_test.go'
@@ -68,13 +70,14 @@ jobs:
           $integration = Get-Content 'remote/agent-v1/attended_input_orchestrator_v1.go' -Raw
           $messageGate = Get-Content 'remote/agent-v1/attended_control_message_gate_v1.go' -Raw
           $runtime = Get-Content 'remote/agent-v1/attended_control_runtime_v1.go' -Raw
+          $binding = Get-Content 'remote/agent-v1/attended_agent_session_v1.go' -Raw
           $launcher = Get-Content 'remote/agent-v1/consent_input_windows.go' -Raw
           $session = Get-Content 'remote/agent-v1/session.go' -Raw
           $permit = Get-Content 'remote/agent-v1/trusted_controller_permit_v1.go' -Raw
           $legacyOrchestrator = Get-Content 'remote/agent-v1/orchestrator.go' -Raw
           $consentCaps = Get-Content 'remote/consent-v1/capabilities_v2.go' -Raw
           $consentMain = Get-Content 'remote/consent-v1/main_windows.go' -Raw
-          $combined = $gate + "`n" + $integration + "`n" + $messageGate + "`n" + $runtime + "`n" + $launcher + "`n" + $session + "`n" + $permit + "`n" + $legacyOrchestrator + "`n" + $consentCaps + "`n" + $consentMain
+          $combined = $gate + "`n" + $integration + "`n" + $messageGate + "`n" + $runtime + "`n" + $binding + "`n" + $launcher + "`n" + $session + "`n" + $permit + "`n" + $legacyOrchestrator + "`n" + $consentCaps + "`n" + $consentMain
           if ($gate -notmatch 'InteractiveUser') { throw 'interactive local approval marker missing' }
           if ($gate -notmatch 'explicit interactive local approval is required') { throw 'explicit local approval fail-closed check missing' }
           if ($gate -notmatch 'LocalInputApprovalTTL') { throw 'bounded local approval TTL missing' }
@@ -91,6 +94,11 @@ jobs:
           if ($runtime -notmatch 'StartAttendedInputIndicator') { throw 'attended runtime must require visible indicator before readiness' }
           if ($runtime -notmatch 'gate.ValidateControlMessage') { throw 'attended runtime must revalidate the per-message gate before readiness' }
           if ($runtime -notmatch 'Dispatcher.Deactivate|dispatcher.Deactivate') { throw 'attended runtime must fail closed the dispatcher during prepare and teardown' }
+          if ($binding -notmatch 'NewAttendedAgentSession') { throw 'attended runtime to WebRTC session binding missing' }
+          if ($binding -notmatch 'cfg.Runtime.ControlGate\(\)') { throw 'attended session must inherit runtime-owned per-message gate' }
+          if ($binding -notmatch 'cfg.Session.Control = cfg.Runtime.dispatcher') { throw 'attended session must inherit runtime-owned dispatcher' }
+          if ($binding -notmatch 'session control dispatcher must match attended runtime dispatcher') { throw 'foreign dispatcher substitution rejection missing' }
+          if ($binding -notmatch 'session control gate is owned by attended runtime') { throw 'caller-supplied gate substitution rejection missing' }
           if ($session -notmatch 'ControlGate\s+ControlMessageGate') { throw 'session control gate contract missing' }
           if ($session -notmatch 'control dispatcher requires attended authorization gate') { throw 'session must fail closed when dispatcher has no attended gate' }
           if ($session -notmatch 'cfg.ControlGate.ValidateControlMessage') { throw 'DataChannel must revalidate attended authorization before dispatch' }
