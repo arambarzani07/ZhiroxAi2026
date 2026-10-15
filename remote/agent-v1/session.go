@@ -26,14 +26,16 @@ type Config struct {
 	ICETransportPolicy webrtc.ICETransportPolicy
 	Signal             SignalSink
 	Status             StatusSink
+	Control            *ControlDispatcher
 }
 
 type AgentSession struct {
-	mu      sync.RWMutex
-	pc      *webrtc.PeerConnection
-	screen  *webrtc.TrackLocalStaticSample
-	control *webrtc.DataChannel
-	closed  bool
+	mu              sync.RWMutex
+	pc              *webrtc.PeerConnection
+	screen          *webrtc.TrackLocalStaticSample
+	control         *webrtc.DataChannel
+	controlDispatch *ControlDispatcher
+	closed          bool
 }
 
 func NewAgentSession(cfg Config) (*AgentSession, error) {
@@ -79,12 +81,19 @@ func NewAgentSession(cfg Config) (*AgentSession, error) {
 		_ = pc.Close()
 		return nil, err
 	}
-	// Phase 1/2 rule: the transport may exist, but remote input execution remains
-	// disabled. Incoming control payloads are intentionally ignored until the
-	// separately reviewed input-injection release enables them.
-	control.OnMessage(func(webrtc.DataChannelMessage) {})
+	// Phase 2 transport boundary: the DataChannel may feed only the abstract,
+	// approval-gated dispatcher. No Windows input implementation is provided by
+	// this layer. Missing/inactive dispatchers therefore remain fail-closed.
+	control.OnMessage(func(message webrtc.DataChannelMessage) {
+		if cfg.Control == nil {
+			return
+		}
+		if err := cfg.Control.Dispatch(message.Data); err != nil {
+			_ = control.Close()
+		}
+	})
 
-	s := &AgentSession{pc: pc, screen: track, control: control}
+	s := &AgentSession{pc: pc, screen: track, control: control, controlDispatch: cfg.Control}
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
 			return
@@ -178,6 +187,10 @@ func (s *AgentSession) Close() error {
 		return nil
 	}
 	s.closed = true
+	dispatcher := s.controlDispatch
 	s.mu.Unlock()
+	if dispatcher != nil {
+		dispatcher.Deactivate()
+	}
 	return s.pc.Close()
 }
