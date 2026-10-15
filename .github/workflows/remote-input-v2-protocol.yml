@@ -7,6 +7,8 @@ on:
     paths:
       - 'remote/agent-v1/control_protocol_v2.go'
       - 'remote/agent-v1/control_protocol_v2_test.go'
+      - 'remote/agent-v1/capabilities_v2.go'
+      - 'remote/agent-v1/capabilities_v2_test.go'
       - '.github/workflows/remote-input-v2-protocol.yml'
   workflow_dispatch:
 
@@ -42,6 +44,9 @@ jobs:
           $protocol = Get-Content 'remote/agent-v1/control_protocol_v2.go' -Raw
           if ($protocol -notmatch 'MaxControlEvents') { throw 'bounded control batch missing' }
           if ($protocol -notmatch 'replayed or out of order') { throw 'sequence/replay gate missing' }
+          $caps = Get-Content 'remote/agent-v1/capabilities_v2.go' -Raw
+          if ($caps -notmatch 'RequiresInputApproval') { throw 'explicit input approval contract missing' }
+          if ($caps -notmatch 'clipboard, file transfer, and audio are disabled in phase 2') { throw 'phase 2 capability boundary missing' }
           $canary = Get-Content 'remote/agent-v1/canary_signaling.go' -Raw
           if ($canary -notmatch '"clipboard":\s+false') { throw 'clipboard must remain disabled' }
           if ($canary -notmatch '"file_transfer":\s+false') { throw 'file transfer must remain disabled' }
