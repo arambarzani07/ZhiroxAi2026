@@ -15,6 +15,8 @@ on:
       - 'remote/agent-v1/attended_control_runtime_v1_test.go'
       - 'remote/agent-v1/attended_activation_readiness_v1.go'
       - 'remote/agent-v1/attended_activation_readiness_v1_test.go'
+      - 'remote/agent-v1/attended_execution_review_v1.go'
+      - 'remote/agent-v1/attended_execution_review_v1_test.go'
       - 'remote/agent-v1/attended_agent_session_v1.go'
       - 'remote/agent-v1/attended_agent_session_v1_test.go'
       - 'remote/agent-v1/attended_session_orchestrator_v1.go'
@@ -75,6 +77,7 @@ jobs:
           $messageGate = Get-Content 'remote/agent-v1/attended_control_message_gate_v1.go' -Raw
           $runtime = Get-Content 'remote/agent-v1/attended_control_runtime_v1.go' -Raw
           $readiness = Get-Content 'remote/agent-v1/attended_activation_readiness_v1.go' -Raw
+          $executionReview = Get-Content 'remote/agent-v1/attended_execution_review_v1.go' -Raw
           $binding = Get-Content 'remote/agent-v1/attended_agent_session_v1.go' -Raw
           $fullOrchestrator = Get-Content 'remote/agent-v1/attended_session_orchestrator_v1.go' -Raw
           $launcher = Get-Content 'remote/agent-v1/consent_input_windows.go' -Raw
@@ -83,7 +86,7 @@ jobs:
           $legacyOrchestrator = Get-Content 'remote/agent-v1/orchestrator.go' -Raw
           $consentCaps = Get-Content 'remote/consent-v1/capabilities_v2.go' -Raw
           $consentMain = Get-Content 'remote/consent-v1/main_windows.go' -Raw
-          $combined = $gate + "`n" + $integration + "`n" + $messageGate + "`n" + $runtime + "`n" + $readiness + "`n" + $binding + "`n" + $fullOrchestrator + "`n" + $launcher + "`n" + $session + "`n" + $permit + "`n" + $legacyOrchestrator + "`n" + $consentCaps + "`n" + $consentMain
+          $combined = $gate + "`n" + $integration + "`n" + $messageGate + "`n" + $runtime + "`n" + $readiness + "`n" + $executionReview + "`n" + $binding + "`n" + $fullOrchestrator + "`n" + $launcher + "`n" + $session + "`n" + $permit + "`n" + $legacyOrchestrator + "`n" + $consentCaps + "`n" + $consentMain
           if ($gate -notmatch 'InteractiveUser') { throw 'interactive local approval marker missing' }
           if ($gate -notmatch 'explicit interactive local approval is required') { throw 'explicit local approval fail-closed check missing' }
           if ($gate -notmatch 'LocalInputApprovalTTL') { throw 'bounded local approval TTL missing' }
@@ -110,6 +113,13 @@ jobs:
           if ($readiness -notmatch 'NewAttendedActivationConsumer' -or $readiness -notmatch 'Consume\(') { throw 'one-time activation readiness consumer missing' }
           if ($readiness -notmatch 'already been consumed') { throw 'activation readiness replay rejection missing' }
           if ($readiness -notmatch 'AttendedActivationGrant' -or $readiness -notmatch 'ConsumedAt') { throw 'non-executing consumed activation grant missing' }
+          if ($executionReview -notmatch 'ReviewedAttendedExecutor') { throw 'reviewed executor metadata contract missing' }
+          if ($executionReview -notmatch 'PrepareReviewedAttendedExecution') { throw 'reviewed execution preparation boundary missing' }
+          if ($executionReview -notmatch 'AttendedExecutionReviewTTL') { throw 'short-lived reviewed execution TTL missing' }
+          if ($executionReview -notmatch 'AttendedExecutionContractV1') { throw 'versioned reviewed execution contract missing' }
+          if ($executionReview -notmatch 'grant.Validate\(runtime, now\)') { throw 'reviewed execution boundary must revalidate consumed grant' }
+          if ($executionReview -notmatch 'SupportsAttendedCapabilities') { throw 'reviewed executor exact capability check missing' }
+          if ($executionReview -match '\.Activate\(' -or $executionReview -match '\.Dispatch\(' -or $executionReview -match 'Execute\(') { throw 'reviewed execution phase must remain non-executing' }
           if ($binding -notmatch 'NewAttendedAgentSession') { throw 'attended runtime to WebRTC session binding missing' }
           if ($binding -notmatch 'cfg.Runtime.ControlGate\(\)') { throw 'attended session must inherit runtime-owned per-message gate' }
           if ($binding -notmatch 'cfg.Session.Control = cfg.Runtime.dispatcher') { throw 'attended session must inherit runtime-owned dispatcher' }
