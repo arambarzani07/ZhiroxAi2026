@@ -194,6 +194,54 @@ func TestTransportHardenedRemoteSignalingRejectForgetsSessionBinding(t *testing.
 	}
 }
 
+func TestTransportHardenedRemoteSignalingOutboundHangupForgetsOnlyAfterDelivery(t *testing.T) {
+	now := time.Now().UTC()
+	id := "550e8400-e29b-41d4-a716-446655440025"
+	inner := &transportRemoteSignalingFake{pending: []PendingSession{validTransportPending(id, now)}}
+	wrapped, err := NewTransportHardenedRemoteSignaling(inner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wrapped.Pending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := wrapped.PostSignal(context.Background(), id, "hangup", map[string]any{"reason": "done"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wrapped.Snapshot(id); err == nil {
+		t.Fatal("successfully delivered terminal hangup must retire guard")
+	}
+}
+
+func TestTransportHardenedRemoteSignalingInboundHangupForgetsAfterAtomicValidation(t *testing.T) {
+	now := time.Now().UTC()
+	id := "550e8400-e29b-41d4-a716-446655440026"
+	inner := &transportRemoteSignalingFake{
+		pending: []PendingSession{validTransportPending(id, now)},
+		signals: []Signal{{
+			ID:        1,
+			Sender:    "controller",
+			Kind:      "hangup",
+			Payload:   rawJSON(map[string]any{"reason": "controller_done"}),
+			CreatedAt: now.Format(time.RFC3339Nano),
+		}},
+	}
+	wrapped, err := NewTransportHardenedRemoteSignaling(inner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wrapped.Pending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	signals, err := wrapped.PollSignals(context.Background(), id, 0)
+	if err != nil || len(signals) != 1 {
+		t.Fatalf("validated controller hangup should be returned once: len=%d err=%v", len(signals), err)
+	}
+	if _, err := wrapped.Snapshot(id); err == nil {
+		t.Fatal("validated inbound terminal hangup must retire guard")
+	}
+}
+
 func TestTransportHardenedRemoteSignalingPropagatesUnderlyingTransportFailure(t *testing.T) {
 	now := time.Now().UTC()
 	id := "550e8400-e29b-41d4-a716-446655440024"
@@ -211,6 +259,9 @@ func TestTransportHardenedRemoteSignalingPropagatesUnderlyingTransportFailure(t 
 	}
 	if err := wrapped.PostSignal(context.Background(), id, "hangup", map[string]any{"reason": "done"}); err == nil {
 		t.Fatal("underlying post failure must be propagated")
+	}
+	if _, err := wrapped.Snapshot(id); err != nil {
+		t.Fatalf("failed terminal delivery must preserve guard for safe retry: %v", err)
 	}
 	if _, err := wrapped.PollSignals(context.Background(), id, 0); err == nil {
 		t.Fatal("underlying poll failure must be propagated")
