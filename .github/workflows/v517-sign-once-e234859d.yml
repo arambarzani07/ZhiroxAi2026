@@ -1,3 +1,4 @@
+# Retry uses the rotated v5.1.2+ trust seed through a temporary service-role-only bridge.
 name: Sign Zhirox PC OS v5.1.7 exact artifact once
 
 on:
