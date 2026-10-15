@@ -4,6 +4,12 @@
 
 Remote Input v2 is an attended-control security boundary for screen + mouse + keyboard sessions. The production Windows release remains screen-only until a separately reviewed execution phase is explicitly approved, built, tested, signed, and rolled out.
 
+## Zero-touch maintenance goal
+
+Installation, Windows startup, signed updates, recovery, rollback, health checks, and reconnect behavior are designed to become zero-touch after the initial trusted setup. This operational automation is separate from active mouse/keyboard control.
+
+Actual remote input remains user-visible while active: the attended runtime requires a live visible session indicator and the authorization chain fails closed if that runtime disappears. Trusted enrollment may reduce repetitive setup work, but it does not create a hidden-control path.
+
 ## Security invariants
 
 - A trusted controller alone is not sufficient to execute input.
