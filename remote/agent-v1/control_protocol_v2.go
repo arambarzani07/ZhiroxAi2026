@@ -31,6 +31,15 @@ type ControlMessage struct {
     Events []ControlEvent `json:"events"`
 }
 
+func blockedSystemKey(code int) bool {
+    switch code {
+    case 0x5B, 0x5C, 0x5D: // left/right Windows key and Apps/Menu key
+        return true
+    default:
+        return false
+    }
+}
+
 func ValidateControlMessage(data []byte, lastSequence uint64) (ControlMessage, uint64, error) {
     if len(data) == 0 || len(data) > MaxControlMessageBytes {
         return ControlMessage{}, lastSequence, errors.New("control message size outside approved bounds")
@@ -65,7 +74,7 @@ func ValidateControlMessage(data []byte, lastSequence uint64) (ControlMessage, u
                 return ControlMessage{}, lastSequence, fmt.Errorf("event %d wheel delta outside approved bounds", i)
             }
         case "key":
-            if event.KeyCode < 1 || event.KeyCode > 255 {
+            if event.KeyCode < 1 || event.KeyCode > 255 || blockedSystemKey(event.KeyCode) {
                 return ControlMessage{}, lastSequence, fmt.Errorf("event %d key code outside approved range", i)
             }
         default:
