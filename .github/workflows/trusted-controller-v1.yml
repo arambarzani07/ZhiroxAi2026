@@ -1,0 +1,49 @@
+name: Trusted Controller v1 Safety
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/trusted_controller_v1.go'
+      - 'remote/agent-v1/trusted_controller_v1_test.go'
+      - '.github/workflows/trusted-controller-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Run remote agent tests
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Enforce trusted-controller safety boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content 'remote/agent-v1/trusted_controller_v1.go' -Raw
+          if ($src -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
+          if ($src -notmatch 'Revoked') { throw 'revocation gate missing' }
+          if ($src -notmatch 'TrustedChallengeTTL') { throw 'bounded challenge TTL missing' }
+          if ($src -notmatch 'TrustedSessionTTL') { throw 'bounded session authorization TTL missing' }
+          if ($src -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'OS input execution or arbitrary command execution is forbidden in auth groundwork'
+          }
