@@ -13,16 +13,55 @@ const LocalInputApprovalTTL = 2 * time.Minute
 // This type is policy state only; it does not show UI, activate a dispatcher,
 // or execute OS input.
 type LocalInputApproval struct {
-	ApprovalID       string
-	ControllerID     string
-	AgentID          string
-	SessionID        string
-	Fingerprint      string
-	Mouse            bool
-	Keyboard         bool
-	InteractiveUser  bool
-	ApprovedAt       time.Time
-	ExpiresAt        time.Time
+	ApprovalID      string
+	ControllerID    string
+	AgentID         string
+	SessionID       string
+	Fingerprint     string
+	Mouse           bool
+	Keyboard        bool
+	InteractiveUser bool
+	ApprovedAt      time.Time
+	ExpiresAt       time.Time
+}
+
+// NewLocalInputApproval converts a successful explicit local Yes/No decision
+// into a proof bound exactly to the already-validated trusted permit. It never
+// treats a missing or negative local decision as authorization.
+func NewLocalInputApproval(permit TrustedControlPermit, approvalID string, interactiveApproved bool, now time.Time) (LocalInputApproval, error) {
+	now = trustedArbiterNow(now)
+	approvalID = strings.TrimSpace(approvalID)
+	if !interactiveApproved {
+		return LocalInputApproval{}, errors.New("explicit interactive local approval is required")
+	}
+	if approvalID == "" || len(approvalID) > 200 {
+		return LocalInputApproval{}, errors.New("local input approval id is invalid")
+	}
+	if strings.TrimSpace(permit.ControllerID) == "" || strings.TrimSpace(permit.AgentID) == "" || strings.TrimSpace(permit.SessionID) == "" || strings.TrimSpace(permit.Fingerprint) == "" {
+		return LocalInputApproval{}, errors.New("trusted control permit identity is incomplete")
+	}
+	if !permit.Mouse && !permit.Keyboard {
+		return LocalInputApproval{}, errors.New("trusted control permit has no input capability")
+	}
+	if permit.ExpiresAt.IsZero() || !permit.ExpiresAt.After(now) {
+		return LocalInputApproval{}, errors.New("trusted control permit is expired or invalid")
+	}
+	expiresAt := now.Add(LocalInputApprovalTTL)
+	if permit.ExpiresAt.Before(expiresAt) {
+		expiresAt = permit.ExpiresAt.UTC()
+	}
+	return LocalInputApproval{
+		ApprovalID:      approvalID,
+		ControllerID:    permit.ControllerID,
+		AgentID:         permit.AgentID,
+		SessionID:       permit.SessionID,
+		Fingerprint:     strings.ToLower(strings.TrimSpace(permit.Fingerprint)),
+		Mouse:           permit.Mouse,
+		Keyboard:        permit.Keyboard,
+		InteractiveUser: true,
+		ApprovedAt:      now,
+		ExpiresAt:       expiresAt,
+	}, nil
 }
 
 // AttendedControlAuthorization is the final policy decision immediately before
