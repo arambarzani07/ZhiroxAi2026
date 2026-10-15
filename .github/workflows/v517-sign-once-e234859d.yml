@@ -1,0 +1,38 @@
+name: Sign Zhirox PC OS v5.1.7 exact artifact once
+
+on:
+  push:
+    branches:
+      - release/v517-remote-screen-canary
+    paths:
+      - '.github/workflows/v517-sign-once-e234859d.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign-exact-v517:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke exact-artifact signer
+        env:
+          SIGN_URL: https://vllwundrtrgdqmkqbduy.supabase.co/functions/v1/zhirox-v517-sign-once-e234859d
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 "$SIGN_URL" > response.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('response.json',encoding='utf-8'))
+          assert r.get('ok') is True, r
+          assert r.get('version') == '5.1.7', r
+          assert r.get('sha256') == 'eb2937c13aba7b4edfa4e38ab0a0198cd1910e03d1ecbae614cd8d9d51c1d91e', r
+          assert int(r.get('size')) == 19912704, r
+          assert r.get('public_key_hex') == '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143', r
+          assert r.get('signature_verified') is True, r
+          assert r.get('status') == 'blocked', r
+          assert r.get('publishable') is False, r
+          sig=r.get('signature_b64','')
+          assert isinstance(sig,str) and len(sig) >= 80, r
+          print('PASS: exact v5.1.7 artifact signed and stored blocked')
+          PY
