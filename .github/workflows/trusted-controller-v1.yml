@@ -15,6 +15,8 @@ on:
       - 'remote/agent-v1/trusted_controller_replay_v1_test.go'
       - 'remote/agent-v1/trusted_controller_signaling_v1.go'
       - 'remote/agent-v1/trusted_controller_signaling_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_handshake_v1.go'
+      - 'remote/agent-v1/trusted_controller_handshake_v1_test.go'
       - 'remote/agent-v1/signaling.go'
       - '.github/workflows/trusted-controller-v1.yml'
   workflow_dispatch:
@@ -53,8 +55,9 @@ jobs:
           $session = Get-Content 'remote/agent-v1/trusted_controller_session_v1.go' -Raw
           $replay = Get-Content 'remote/agent-v1/trusted_controller_replay_v1.go' -Raw
           $trustedSignaling = Get-Content 'remote/agent-v1/trusted_controller_signaling_v1.go' -Raw
+          $handshake = Get-Content 'remote/agent-v1/trusted_controller_handshake_v1.go' -Raw
           $wireSignaling = Get-Content 'remote/agent-v1/signaling.go' -Raw
-          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay + "`n" + $trustedSignaling + "`n" + $wireSignaling
+          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay + "`n" + $trustedSignaling + "`n" + $handshake + "`n" + $wireSignaling
           if ($auth -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
           if ($auth -notmatch 'AgentID:\s+challenge.AgentID' -or $auth -notmatch 'SessionID:\s+challenge.SessionID') { throw 'challenge-to-session binding missing' }
           if ($auth -notmatch 'Revoked') { throw 'revocation gate missing' }
@@ -72,6 +75,9 @@ jobs:
           if ($trustedSignaling -notmatch 'ParseRemoteCapabilitiesV2') { throw 'strict signaling capability parser missing' }
           if ($trustedSignaling -notmatch 'grant.ControllerID != intent.ControllerID' -or $trustedSignaling -notmatch 'grant.SessionID != intent.SessionID') { throw 'trusted signaling identity binding missing' }
           if ($trustedSignaling -notmatch 'grant.Screen != intent.Requested.Screen' -or $trustedSignaling -notmatch 'grant.Mouse != intent.Requested.Mouse' -or $trustedSignaling -notmatch 'grant.Keyboard != intent.Requested.Keyboard') { throw 'trusted signaling exact capability binding missing' }
+          if ($handshake -notmatch 'StartTrustedControllerHandshake' -or $handshake -notmatch 'CompleteTrustedControllerHandshake') { throw 'trusted signaling handshake entry points missing' }
+          if ($handshake -notmatch 'trustedHandshakeIntentHash' -or $handshake -notmatch 'intentHash') { throw 'sealed pending signaling intent missing' }
+          if ($handshake -notmatch 'VerifyTrustedControllerOnce' -or $handshake -notmatch 'GrantTrustedSession' -or $handshake -notmatch 'BindTrustedGrantToSignaling') { throw 'trusted handshake verification/grant/binding chain missing' }
           if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'OS input execution or arbitrary command execution is forbidden in auth groundwork'
           }
