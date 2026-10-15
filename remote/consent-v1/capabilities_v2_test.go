@@ -24,6 +24,24 @@ func TestConsentCapabilityModeScreenInputDisclosure(t *testing.T) {
 	}
 }
 
+func TestConsentCapabilityModeMouseOnlyDisclosure(t *testing.T) {
+	mode, err := parseConsentCapabilityMode("screen-mouse")
+	if err != nil { t.Fatal(err) }
+	approval := strings.ToLower(consentApprovalNotice(mode))
+	if !strings.Contains(approval, "control the mouse") || !strings.Contains(approval, "keyboard control is disabled") {
+		t.Fatalf("mouse-only disclosure is not exact: %q", approval)
+	}
+}
+
+func TestConsentCapabilityModeKeyboardOnlyDisclosure(t *testing.T) {
+	mode, err := parseConsentCapabilityMode("screen-keyboard")
+	if err != nil { t.Fatal(err) }
+	approval := strings.ToLower(consentApprovalNotice(mode))
+	if !strings.Contains(approval, "control the keyboard") || !strings.Contains(approval, "mouse control is disabled") {
+		t.Fatalf("keyboard-only disclosure is not exact: %q", approval)
+	}
+}
+
 func TestConsentCapabilityModeRejectsUnknown(t *testing.T) {
 	if _, err := parseConsentCapabilityMode("unattended"); err == nil {
 		t.Fatal("unknown capability mode should fail closed")
