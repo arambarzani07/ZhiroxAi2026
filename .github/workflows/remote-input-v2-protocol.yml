@@ -9,6 +9,8 @@ on:
       - 'remote/agent-v1/control_protocol_v2_test.go'
       - 'remote/agent-v1/capabilities_v2.go'
       - 'remote/agent-v1/capabilities_v2_test.go'
+      - 'remote/agent-v1/control_dispatch_v2.go'
+      - 'remote/agent-v1/control_dispatch_v2_test.go'
       - 'remote/consent-v1/capabilities_v2.go'
       - 'remote/consent-v1/capabilities_v2_test.go'
       - 'remote/controller-v1/control_v2.js'
@@ -67,6 +69,9 @@ jobs:
           $caps = Get-Content 'remote/agent-v1/capabilities_v2.go' -Raw
           if ($caps -notmatch 'RequiresInputApproval') { throw 'explicit input approval contract missing' }
           if ($caps -notmatch 'clipboard, file transfer, and audio are disabled in phase 2') { throw 'phase 2 capability boundary missing' }
+          $dispatcher = Get-Content 'remote/agent-v1/control_dispatch_v2.go' -Raw
+          if ($dispatcher -notmatch 'inactive pending local approval') { throw 'dispatcher must fail closed before local approval' }
+          if ($dispatcher -notmatch 'Deactivate') { throw 'dispatcher disconnect close-gate missing' }
           $consentCaps = Get-Content 'remote/consent-v1/capabilities_v2.go' -Raw
           if ($consentCaps -notmatch 'screen-input') { throw 'input capability disclosure mode missing' }
           if ($consentCaps -notmatch 'control the mouse and keyboard') { throw 'approval text must explicitly disclose mouse and keyboard control' }
