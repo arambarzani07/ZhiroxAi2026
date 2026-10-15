@@ -145,7 +145,7 @@ jobs:
           $next = (Get-Content 'release-gates\v5.1.1-next-public-key.hex' -Raw).Trim().ToLowerInvariant()
           if ($next -ne '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143') { throw 'pinned update key mismatch' }
           "package main`n`nconst pcOSPinnedUpdatePublicKeyHex = `"$next`"`n" | Set-Content -Encoding UTF8 'buildsrc\update_trust_v510.go'
-          gofmt -w buildsrc/*.go
+          Get-ChildItem 'buildsrc' -Filter '*.go' | ForEach-Object { gofmt -w $_.FullName }
 
       - name: v5.1.7 safety invariants
         shell: pwsh
