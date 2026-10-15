@@ -55,17 +55,21 @@ jobs:
             'remote/agent-v1/orchestrator_transport_v1.go'
           )
           $all = ($files | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+          # Ignore standalone // comments for forbidden-token scans so explanatory
+          # safety comments do not create false positives. Executable code and
+          # string literals remain scanned fail-closed.
+          $codeOnly = (($all -split "`n") | Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
           if ($all -notmatch 'SignalTransportGuard') { throw 'session-scoped signaling transport guard missing' }
           if ($all -notmatch 'InboundRejected') { throw 'transport observability counters missing' }
           if ($all -notmatch 'LastSignalID') { throw 'transport replay cursor state missing' }
           if ($all -notmatch 'TransportHardenedRemoteSignaling') { throw 'transport-hardened signaling wrapper missing' }
-          if ($all -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+          if ($codeOnly -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'platform input injection or arbitrary command execution is forbidden in signaling transport boundary'
           }
-          if ($all -match '\.Activate\(' -or $all -match '\.Dispatch\(' -or $all -match 'Execute\(') {
+          if ($codeOnly -match '\.Activate\(' -or $codeOnly -match '\.Dispatch\(' -or $codeOnly -match 'Execute\(') {
             throw 'signaling transport boundary must remain non-executing'
           }
-          if ($all -match 'ControlPayload|PointerX|PointerY|KeyCode|Clipboard|FileTransfer') {
+          if ($codeOnly -match 'ControlPayload|PointerX|PointerY|KeyCode|Clipboard|FileTransfer') {
             throw 'signaling transport observability must remain metadata-only'
           }
 
