@@ -1,0 +1,61 @@
+name: Trusted Controller Mock Executor Gate v1
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/attended_mock_executor_v1.go'
+      - 'remote/agent-v1/attended_mock_executor_v1_test.go'
+      - 'remote/agent-v1/attended_execution_request_v1.go'
+      - 'remote/agent-v1/attended_execution_review_v1.go'
+      - '.github/workflows/trusted-controller-mock-executor-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Run remote agent tests
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Enforce metadata-only mock executor boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content 'remote/agent-v1/attended_mock_executor_v1.go' -Raw
+          if ($src -notmatch 'AttendedExecutionAuditSink') { throw 'metadata-only audit sink contract missing' }
+          if ($src -notmatch 'RecordAttendedExecutionAudit') { throw 'lifecycle audit recording boundary missing' }
+          if ($src -notmatch 'session.Validate') { throw 'mock lifecycle must revalidate bounded execution session' }
+          if ($src -notmatch 'session.Close') { throw 'mock lifecycle must fail closed by closing metadata session' }
+          if ($src -notmatch 'SupportsAttendedCapabilities') { throw 'mock reviewed executor capability contract missing' }
+          if ($src -notmatch 'AttendedMockAuditSessionOpened' -or $src -notmatch 'AttendedMockAuditSessionClosed') { throw 'mock lifecycle audit events missing' }
+          if ($src -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'platform input injection or arbitrary command execution is forbidden in mock executor boundary'
+          }
+          if ($src -match '\.Activate\(' -or $src -match '\.Dispatch\(' -or $src -match 'Execute\(') {
+            throw 'mock executor boundary must remain non-executing'
+          }
+          if ($src -match 'ControlPayload|json.RawMessage') {
+            throw 'mock executor boundary must not accept remote input payloads'
+          }
