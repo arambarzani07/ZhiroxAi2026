@@ -9,7 +9,11 @@ on:
       - 'remote/agent-v1/trusted_controller_attended_gate_v1_test.go'
       - 'remote/agent-v1/attended_input_orchestrator_v1.go'
       - 'remote/agent-v1/attended_input_orchestrator_v1_test.go'
+      - 'remote/agent-v1/attended_control_message_gate_v1.go'
+      - 'remote/agent-v1/attended_control_message_gate_v1_test.go'
       - 'remote/agent-v1/consent_input_windows.go'
+      - 'remote/agent-v1/session.go'
+      - 'remote/agent-v1/session_control_gate_v2_test.go'
       - 'remote/agent-v1/trusted_controller_permit_v1.go'
       - 'remote/agent-v1/trusted_controller_permit_v1_test.go'
       - 'remote/agent-v1/trusted_controller_arbiter_v1.go'
@@ -60,12 +64,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $gate = Get-Content 'remote/agent-v1/trusted_controller_attended_gate_v1.go' -Raw
           $integration = Get-Content 'remote/agent-v1/attended_input_orchestrator_v1.go' -Raw
+          $messageGate = Get-Content 'remote/agent-v1/attended_control_message_gate_v1.go' -Raw
           $launcher = Get-Content 'remote/agent-v1/consent_input_windows.go' -Raw
+          $session = Get-Content 'remote/agent-v1/session.go' -Raw
           $permit = Get-Content 'remote/agent-v1/trusted_controller_permit_v1.go' -Raw
           $legacyOrchestrator = Get-Content 'remote/agent-v1/orchestrator.go' -Raw
           $consentCaps = Get-Content 'remote/consent-v1/capabilities_v2.go' -Raw
           $consentMain = Get-Content 'remote/consent-v1/main_windows.go' -Raw
-          $combined = $gate + "`n" + $integration + "`n" + $launcher + "`n" + $permit + "`n" + $legacyOrchestrator + "`n" + $consentCaps + "`n" + $consentMain
+          $combined = $gate + "`n" + $integration + "`n" + $messageGate + "`n" + $launcher + "`n" + $session + "`n" + $permit + "`n" + $legacyOrchestrator + "`n" + $consentCaps + "`n" + $consentMain
           if ($gate -notmatch 'InteractiveUser') { throw 'interactive local approval marker missing' }
           if ($gate -notmatch 'explicit interactive local approval is required') { throw 'explicit local approval fail-closed check missing' }
           if ($gate -notmatch 'LocalInputApprovalTTL') { throw 'bounded local approval TTL missing' }
@@ -76,6 +82,12 @@ jobs:
           if ($integration -notmatch 'RemoteInputConsent' -or $integration -notmatch 'ApproveInput') { throw 'interactive input-consent orchestration boundary missing' }
           if ($integration -notmatch 'NewLocalInputApproval' -or $integration -notmatch 'AuthorizeAttendedControl') { throw 'consent result is not bound into attended authorization' }
           if ($integration -notmatch 'StartAttendedInputIndicator' -or $integration -notmatch 'Authorization.Validate') { throw 'visible input indicator revalidation boundary missing' }
+          if ($messageGate -notmatch 'ControlMessageGate' -or $messageGate -notmatch 'ValidateControlMessage') { throw 'per-message attended authorization gate missing' }
+          if ($messageGate -notmatch 'Authorization.Validate') { throw 'per-message gate must revalidate attended authorization' }
+          if ($session -notmatch 'ControlGate\s+ControlMessageGate') { throw 'session control gate contract missing' }
+          if ($session -notmatch 'control dispatcher requires attended authorization gate') { throw 'session must fail closed when dispatcher has no attended gate' }
+          if ($session -notmatch 'cfg.ControlGate.ValidateControlMessage') { throw 'DataChannel must revalidate attended authorization before dispatch' }
+          if ($session -notmatch 'cfg.Control.Dispatch') { throw 'abstract dispatcher route missing' }
           if ($launcher -notmatch '--capability-mode=' -or $launcher -notmatch 'ApproveInput' -or $launcher -notmatch 'StartInputIndicator') { throw 'Windows consent launcher exact capability mode missing' }
           if ($consentMain -notmatch 'parseConsentCapabilityMode\(argValue\("--capability-mode="\)\)') { throw 'consent helper does not parse capability mode' }
           if ($consentCaps -notmatch 'screen-mouse' -or $consentCaps -notmatch 'screen-keyboard' -or $consentCaps -notmatch 'screen-input') { throw 'exact input disclosure modes missing' }
