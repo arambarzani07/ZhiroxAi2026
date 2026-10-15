@@ -192,6 +192,9 @@ func TestTransportHardenedRemoteSignalingRejectForgetsSessionBinding(t *testing.
 	if _, err := wrapped.Snapshot(id); err == nil {
 		t.Fatal("rejected session binding must be forgotten")
 	}
+	if _, err := wrapped.LifecycleSnapshot(id); err == nil {
+		t.Fatal("rejected session lifecycle must be forgotten")
+	}
 }
 
 func TestTransportHardenedRemoteSignalingOutboundHangupForgetsOnlyAfterDelivery(t *testing.T) {
@@ -210,6 +213,9 @@ func TestTransportHardenedRemoteSignalingOutboundHangupForgetsOnlyAfterDelivery(
 	}
 	if _, err := wrapped.Snapshot(id); err == nil {
 		t.Fatal("successfully delivered terminal hangup must retire guard")
+	}
+	if _, err := wrapped.LifecycleSnapshot(id); err == nil {
+		t.Fatal("successfully delivered terminal hangup must retire lifecycle")
 	}
 }
 
@@ -240,6 +246,9 @@ func TestTransportHardenedRemoteSignalingInboundHangupForgetsAfterAtomicValidati
 	if _, err := wrapped.Snapshot(id); err == nil {
 		t.Fatal("validated inbound terminal hangup must retire guard")
 	}
+	if _, err := wrapped.LifecycleSnapshot(id); err == nil {
+		t.Fatal("validated inbound terminal hangup must retire lifecycle")
+	}
 }
 
 func TestTransportHardenedRemoteSignalingPropagatesUnderlyingTransportFailure(t *testing.T) {
@@ -265,5 +274,56 @@ func TestTransportHardenedRemoteSignalingPropagatesUnderlyingTransportFailure(t 
 	}
 	if _, err := wrapped.PollSignals(context.Background(), id, 0); err == nil {
 		t.Fatal("underlying poll failure must be propagated")
+	}
+	lifecycle, err := wrapped.LifecycleSnapshot(id)
+	if err != nil {
+		t.Fatalf("transient failures inside grace window must preserve lifecycle: %v", err)
+	}
+	if lifecycle.State != signalLifecycleDegraded || lifecycle.ConsecutiveFailures != 2 {
+		t.Fatalf("unexpected degraded lifecycle after post+poll failures: %#v", lifecycle)
+	}
+}
+
+func TestTransportHardenedRemoteSignalingRecoversFromTransientPollFailure(t *testing.T) {
+	now := time.Now().UTC()
+	id := "550e8400-e29b-41d4-a716-446655440027"
+	inner := &transportRemoteSignalingFake{
+		pending: []PendingSession{validTransportPending(id, now)},
+		pollErr: errors.New("temporary poll outage"),
+	}
+	lifecycleObserver := &recordingSignalLifecycleObserver{}
+	wrapped, err := NewTransportHardenedRemoteSignalingWithLifecycle(inner, nil, lifecycleObserver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wrapped.Pending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wrapped.PollSignals(context.Background(), id, 0); err == nil {
+		t.Fatal("first transient poll failure must be returned")
+	}
+	degraded, err := wrapped.LifecycleSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if degraded.State != signalLifecycleDegraded || degraded.ConsecutiveFailures != 1 {
+		t.Fatalf("unexpected degraded lifecycle: %#v", degraded)
+	}
+
+	inner.mu.Lock()
+	inner.pollErr = nil
+	inner.mu.Unlock()
+	if _, err := wrapped.PollSignals(context.Background(), id, 0); err != nil {
+		t.Fatalf("successful retry inside grace window should recover: %v", err)
+	}
+	recovered, err := wrapped.LifecycleSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.State != signalLifecycleHealthy || recovered.ConsecutiveFailures != 0 {
+		t.Fatalf("unexpected recovered lifecycle: %#v", recovered)
+	}
+	if len(lifecycleObserver.snapshot()) < 2 {
+		t.Fatal("degraded and recovered lifecycle transitions must be observable")
 	}
 }
