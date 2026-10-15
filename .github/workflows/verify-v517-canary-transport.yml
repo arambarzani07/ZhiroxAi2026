@@ -1,0 +1,37 @@
+name: Verify v5.1.7 Canary Transport
+
+on:
+  push:
+    branches:
+      - release/v517-remote-screen-canary
+    paths:
+      - '.github/workflows/verify-v517-canary-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Supabase transport canary
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --connect-timeout 10 --max-time 90 \
+            'https://vllwundrtrgdqmkqbduy.supabase.co/functions/v1/zhirox-pc-update-v517-canary/health' > health.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('health.json',encoding='utf-8'))
+          assert r.get('ok') is True, r
+          assert r.get('version') == '5.1.7', r
+          assert r.get('sha256') == 'eb2937c13aba7b4edfa4e38ab0a0198cd1910e03d1ecbae614cd8d9d51c1d91e', r
+          assert int(r.get('size')) == 19912704, r
+          assert r.get('signature') == 'ed25519_verified', r
+          assert r.get('release_status') == 'blocked', r
+          assert r.get('publishable') is False, r
+          assert r.get('attended_screen_only') is True, r
+          assert r.get('remote_input') is False, r
+          assert r.get('unattended_access') is False, r
+          print('PASS: durable v5.1.7 transport verified end-to-end')
+          PY
