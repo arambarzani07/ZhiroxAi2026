@@ -27,9 +27,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Enforce attended-only phase boundary
         shell: pwsh
