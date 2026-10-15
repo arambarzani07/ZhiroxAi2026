@@ -1,0 +1,64 @@
+name: Publish v5.1.7 Canary Transport
+
+on:
+  push:
+    branches:
+      - release/v517-remote-screen-canary
+    paths:
+      - '.github/workflows/publish-v517-canary-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_SHA: e234859dee13c11ce0cdb2b40488e91eb5dd3bf0
+  SOURCE_RUN: '38686471064'
+  ARTIFACT_NAME: Zhirox-PC-OS-v5.1.7-e234859dee13c11ce0cdb2b40488e91eb5dd3bf0
+  EXE_SHA256: eb2937c13aba7b4edfa4e38ab0a0198cd1910e03d1ecbae614cd8d9d51c1d91e
+  EXE_SIZE: '19912704'
+  RELEASE_TAG: v5.1.7-canary-e234859d
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download exact passing Actions artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir transport
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name "$ARTIFACT_NAME" --dir transport
+          test -f transport/ZhiroxAISupervisor.exe
+          actual_sha=$(sha256sum transport/ZhiroxAISupervisor.exe | awk '{print $1}')
+          actual_size=$(stat -c %s transport/ZhiroxAISupervisor.exe)
+          test "$actual_sha" = "$EXE_SHA256"
+          test "$actual_size" = "$EXE_SIZE"
+          grep -q '"version": "5.1.7"' transport/metadata.json
+          grep -q '"publishable": false' transport/metadata.json
+          printf '%s\n' 'F7LVZZcBrszAH+dEWPTshJvsLQyMENobQaSDqDDN//pQKoy6kGOGsD3q2A399cRet0orUUCOlvzKXst28Z1vCA==' > transport/ZhiroxAISupervisor.exe.ed25519.b64
+
+      - name: Create or update public prerelease transport
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" --target "$SOURCE_SHA" --prerelease --title 'Zhirox PC OS v5.1.7 Screen-Only Canary' --notes 'Canary transport only. Attended screen viewing; no mouse, keyboard, clipboard, file transfer, audio, unattended access, or shell. Artifact is Ed25519-signed and remains blocked in the production release gate until rollout verification.'
+          fi
+          gh release upload "$RELEASE_TAG" --repo "${{ github.repository }}" --clobber \
+            transport/ZhiroxAISupervisor.exe \
+            transport/ZhiroxAISupervisor.exe.sha256 \
+            transport/ZhiroxAISupervisor.exe.ed25519.b64 \
+            transport/metadata.json \
+            transport/signing-request.json
+
+      - name: Verify published release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json tagName,isPrerelease,isDraft,url --jq 'select(.tagName==env.RELEASE_TAG and .isPrerelease==true and .isDraft==false) | .url' > release-url.txt
+          test -s release-url.txt
+          echo "PASS: durable v5.1.7 prerelease transport published"
