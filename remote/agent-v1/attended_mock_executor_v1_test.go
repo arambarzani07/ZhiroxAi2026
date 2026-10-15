@@ -33,7 +33,7 @@ func (s *recordingAttendedAuditSink) snapshot() []AttendedExecutionAuditEvent {
 	return append([]AttendedExecutionAuditEvent(nil), s.events...)
 }
 
-func mockObservationFixture(t *testing.T, now time.Time, audit *recordingAttendedAuditSink) (*TrustedSessionArbiter, *ControlDispatcher, *fakeControlSink, *AttendedControlRuntime, AttendedActivationGrant, AttendedExecutionReview, *MockReviewedAttendedExecutor, *AttendedExecutionSession) {
+func mockObservationFixture(t *testing.T, now time.Time, audit AttendedExecutionAuditSink) (*TrustedSessionArbiter, *ControlDispatcher, *fakeControlSink, *AttendedControlRuntime, AttendedActivationGrant, AttendedExecutionReview, *MockReviewedAttendedExecutor, *AttendedExecutionSession) {
 	t.Helper()
 	arbiter, dispatcher, sink, runtime, grant, _, review := executionRequestFixture(t, now)
 	adapter, err := NewMockReviewedAttendedExecutor("reviewed-windows-input-v1", true, true, audit)
