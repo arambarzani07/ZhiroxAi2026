@@ -96,9 +96,7 @@ func (t *TransportHardenedRemoteSignaling) Reject(ctx context.Context, sessionID
 	}
 	err := t.inner.Reject(ctx, sessionID)
 	if err == nil {
-		t.mu.Lock()
-		delete(t.guards, sessionID)
-		t.mu.Unlock()
+		t.Forget(sessionID)
 	}
 	return err
 }
@@ -118,7 +116,15 @@ func (t *TransportHardenedRemoteSignaling) PostSignal(ctx context.Context, sessi
 	if err := guard.ValidateOutbound(kind, payload, time.Now().UTC()); err != nil {
 		return err
 	}
-	return t.inner.PostSignal(ctx, sessionID, kind, payload)
+	if err := t.inner.PostSignal(ctx, sessionID, kind, payload); err != nil {
+		return err
+	}
+	// A successfully delivered terminal hangup retires the session-scoped guard.
+	// Failures deliberately preserve the guard so the caller can retry safely.
+	if normalizeSignalKind(kind) == "hangup" {
+		t.Forget(sessionID)
+	}
+	return nil
 }
 
 func (t *TransportHardenedRemoteSignaling) PollSignals(ctx context.Context, sessionID string, after int64) ([]Signal, error) {
@@ -135,6 +141,12 @@ func (t *TransportHardenedRemoteSignaling) PollSignals(ctx context.Context, sess
 	// its cursor across harmless agent-origin echo rows before ignoring them.
 	if _, _, err := guard.FilterInboundBatch(signals, after, time.Now().UTC()); err != nil {
 		return nil, err
+	}
+	for _, sig := range signals {
+		if strings.EqualFold(strings.TrimSpace(sig.Sender), "controller") && normalizeSignalKind(sig.Kind) == "hangup" {
+			t.Forget(sessionID)
+			break
+		}
 	}
 	return signals, nil
 }
