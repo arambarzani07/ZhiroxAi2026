@@ -56,16 +56,24 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $agent = Get-ChildItem 'remote/agent-v1' -Recurse -File -Include *.go | Get-Content -Raw
-          $consent = Get-ChildItem 'remote/consent-v1' -Recurse -File -Include *.go | Get-Content -Raw
-          $controller = Get-Content 'remote/controller-v1/app.js' -Raw
-          $combined = $agent + "`n" + $consent
 
-          if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
-            throw 'platform input injection or arbitrary command execution is forbidden in readiness candidate'
+          # Execution-boundary checks apply to production Go sources only.
+          # Tests intentionally call dispatcher.Activate() in controlled fixtures
+          # to prove that teardown, revocation, and indicator exit fail closed.
+          $agentProdFiles = Get-ChildItem 'remote/agent-v1' -Recurse -File -Include *.go |
+            Where-Object { $_.Name -notlike '*_test.go' }
+          $consentProdFiles = Get-ChildItem 'remote/consent-v1' -Recurse -File -Include *.go |
+            Where-Object { $_.Name -notlike '*_test.go' }
+          $agentProd = ($agentProdFiles | Get-Content -Raw) -join "`n"
+          $consentProd = ($consentProdFiles | Get-Content -Raw) -join "`n"
+          $combinedProd = $agentProd + "`n" + $consentProd
+          $controller = Get-Content 'remote/controller-v1/app.js' -Raw
+
+          if ($combinedProd -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'platform input injection or arbitrary command execution is forbidden in readiness candidate production source'
           }
-          if ($combined -match '\.Activate\(') {
-            throw 'readiness candidate must not activate ControlDispatcher'
+          if ($combinedProd -match '\.Activate\(') {
+            throw 'readiness candidate production source must not activate ControlDispatcher'
           }
           if ($controller -notmatch 'screen-only policy is active') {
             throw 'live controller must remain screen-only'
