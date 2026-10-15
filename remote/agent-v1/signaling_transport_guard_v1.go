@@ -10,13 +10,13 @@ import (
 )
 
 const (
-	maxInboundSignalBatch       = 256
-	maxSignalFutureClockSkew    = 5 * time.Minute
-	transportDirectionInbound   = "inbound"
-	transportDirectionOutbound  = "outbound"
-	transportDispositionAccept  = "accepted"
-	transportDispositionIgnore  = "ignored"
-	transportDispositionReject  = "rejected"
+	maxInboundSignalBatch      = 256
+	maxSignalFutureClockSkew   = 5 * time.Minute
+	transportDirectionInbound  = "inbound"
+	transportDirectionOutbound = "outbound"
+	transportDispositionAccept = "accepted"
+	transportDispositionIgnore = "ignored"
+	transportDispositionReject = "rejected"
 )
 
 // SignalTransportObservation is metadata-only transport telemetry. It never
@@ -42,14 +42,14 @@ type SignalTransportObserver interface {
 }
 
 type SignalTransportSnapshot struct {
-	SessionID       string
-	InboundAccepted uint64
-	InboundIgnored  uint64
-	InboundRejected uint64
+	SessionID        string
+	InboundAccepted  uint64
+	InboundIgnored   uint64
+	InboundRejected  uint64
 	OutboundAccepted uint64
 	OutboundRejected uint64
-	LastSignalID    int64
-	LastObservedAt  time.Time
+	LastSignalID     int64
+	LastObservedAt   time.Time
 	LastRejectReason string
 }
 
@@ -58,11 +58,11 @@ type SignalTransportSnapshot struct {
 // server timestamps, and session expiry before the orchestrator sees a signal.
 // It performs no WebRTC mutation and has no control/input execution capability.
 type SignalTransportGuard struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	sessionID string
 	expiresAt time.Time
-	observer SignalTransportObserver
-	snapshot SignalTransportSnapshot
+	observer  SignalTransportObserver
+	snapshot  SignalTransportSnapshot
 }
 
 func NewSignalTransportGuard(sessionID string, expiresAt time.Time, observer SignalTransportObserver, now time.Time) (*SignalTransportGuard, error) {
@@ -78,7 +78,7 @@ func NewSignalTransportGuard(sessionID string, expiresAt time.Time, observer Sig
 		sessionID: sessionID,
 		expiresAt: expiresAt,
 		observer:  observer,
-		snapshot: SignalTransportSnapshot{SessionID: sessionID},
+		snapshot:  SignalTransportSnapshot{SessionID: sessionID},
 	}, nil
 }
 
@@ -123,9 +123,14 @@ func (g *SignalTransportGuard) rejectLocked(direction string, signalID int64, ki
 		g.snapshot.OutboundRejected++
 	}
 	g.emitLocked(SignalTransportObservation{
-		Direction: direction, Disposition: transportDispositionReject,
-		SignalID: signalID, Kind: normalizeSignalKind(kind), Sender: strings.ToLower(strings.TrimSpace(sender)),
-		PayloadBytes: payloadBytes, Reason: reason, ObservedAt: now,
+		Direction:    direction,
+		Disposition:  transportDispositionReject,
+		SignalID:     signalID,
+		Kind:         normalizeSignalKind(kind),
+		Sender:       strings.ToLower(strings.TrimSpace(sender)),
+		PayloadBytes: payloadBytes,
+		Reason:       reason,
+		ObservedAt:   now,
 	})
 	return errors.New(reason)
 }
@@ -151,16 +156,20 @@ func (g *SignalTransportGuard) ValidateOutbound(kind string, payload any, now ti
 	}
 	g.snapshot.OutboundAccepted++
 	g.emitLocked(SignalTransportObservation{
-		Direction: transportDirectionOutbound, Disposition: transportDispositionAccept,
-		Kind: normalizeSignalKind(kind), Sender: "agent", PayloadBytes: payloadBytes, ObservedAt: now,
+		Direction:    transportDirectionOutbound,
+		Disposition:  transportDispositionAccept,
+		Kind:         normalizeSignalKind(kind),
+		Sender:       "agent",
+		PayloadBytes: payloadBytes,
+		ObservedAt:   now,
 	})
 	return nil
 }
 
-// FilterInboundBatch validates a polled batch and returns only controller-origin
-// signals. Agent-origin echo rows are cursor-advanced and ignored. Unknown
-// senders, replay/out-of-order IDs, malformed JSON, unsupported kinds, oversized
-// payloads, invalid future timestamps, or expiry fail closed.
+// FilterInboundBatch validates the full polled batch atomically before committing
+// cursor/counter state. It returns only controller-origin rows while agent-origin
+// echo rows are counted as ignored. The caller can use returned cursor to advance
+// across all validated rows. Any malformed row rejects the complete batch.
 func (g *SignalTransportGuard) FilterInboundBatch(signals []Signal, after int64, now time.Time) ([]Signal, int64, error) {
 	if g == nil {
 		return nil, after, errors.New("signal transport guard is required")
@@ -177,18 +186,22 @@ func (g *SignalTransportGuard) FilterInboundBatch(signals []Signal, after int64,
 	if len(signals) > maxInboundSignalBatch {
 		return nil, after, g.rejectLocked(transportDirectionInbound, 0, "", "", 0, "inbound signal batch exceeds approved limit", now)
 	}
+	if g.snapshot.LastSignalID > after {
+		return nil, after, g.rejectLocked(transportDirectionInbound, after, "", "", 0, "signal transport cursor regressed", now)
+	}
 
 	cursor := after
 	accepted := make([]Signal, 0, len(signals))
+	observations := make([]SignalTransportObservation, 0, len(signals))
+	var acceptedCount uint64
+	var ignoredCount uint64
+
 	for _, sig := range signals {
 		payloadBytes := len(sig.Payload)
 		kind := normalizeSignalKind(sig.Kind)
 		sender := strings.ToLower(strings.TrimSpace(sig.Sender))
 		if sig.ID <= cursor {
 			return nil, after, g.rejectLocked(transportDirectionInbound, sig.ID, kind, sender, payloadBytes, "inbound signal replay or ordering violation", now)
-		}
-		if sig.ID <= g.snapshot.LastSignalID {
-			return nil, after, g.rejectLocked(transportDirectionInbound, sig.ID, kind, sender, payloadBytes, "inbound signal id was already observed", now)
 		}
 		if payloadBytes == 0 || payloadBytes > pcOSRemoteMaxSignalBytes || !json.Valid(sig.Payload) {
 			return nil, after, g.rejectLocked(transportDirectionInbound, sig.ID, kind, sender, payloadBytes, "inbound signal payload is invalid", now)
@@ -205,27 +218,38 @@ func (g *SignalTransportGuard) FilterInboundBatch(signals []Signal, after int64,
 				return nil, after, g.rejectLocked(transportDirectionInbound, sig.ID, kind, sender, payloadBytes, "inbound signal timestamp is too far in the future", now)
 			}
 		}
-
-		cursor = sig.ID
-		g.snapshot.LastSignalID = sig.ID
-		if sender == "agent" {
-			g.snapshot.InboundIgnored++
-			g.emitLocked(SignalTransportObservation{
-				Direction: transportDirectionInbound, Disposition: transportDispositionIgnore,
-				SignalID: sig.ID, Kind: kind, Sender: sender, PayloadBytes: payloadBytes,
-				Reason: "agent echo ignored", ObservedAt: now,
-			})
-			continue
-		}
-		if sender != "controller" {
+		if sender != "controller" && sender != "agent" {
 			return nil, after, g.rejectLocked(transportDirectionInbound, sig.ID, kind, sender, payloadBytes, "inbound signal sender is not trusted", now)
 		}
-		g.snapshot.InboundAccepted++
-		g.emitLocked(SignalTransportObservation{
-			Direction: transportDirectionInbound, Disposition: transportDispositionAccept,
-			SignalID: sig.ID, Kind: kind, Sender: sender, PayloadBytes: payloadBytes, ObservedAt: now,
-		})
-		accepted = append(accepted, sig)
+
+		cursor = sig.ID
+		observation := SignalTransportObservation{
+			Direction:    transportDirectionInbound,
+			SignalID:     sig.ID,
+			Kind:         kind,
+			Sender:       sender,
+			PayloadBytes: payloadBytes,
+			ObservedAt:   now,
+		}
+		if sender == "agent" {
+			ignoredCount++
+			observation.Disposition = transportDispositionIgnore
+			observation.Reason = "agent echo ignored"
+		} else {
+			acceptedCount++
+			observation.Disposition = transportDispositionAccept
+			accepted = append(accepted, sig)
+		}
+		observations = append(observations, observation)
+	}
+
+	g.snapshot.InboundAccepted += acceptedCount
+	g.snapshot.InboundIgnored += ignoredCount
+	if cursor > g.snapshot.LastSignalID {
+		g.snapshot.LastSignalID = cursor
+	}
+	for _, observation := range observations {
+		g.emitLocked(observation)
 	}
 	return accepted, cursor, nil
 }
