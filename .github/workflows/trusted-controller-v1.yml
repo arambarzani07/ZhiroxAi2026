@@ -21,6 +21,8 @@ on:
       - 'remote/agent-v1/trusted_controller_activation_v1_test.go'
       - 'remote/agent-v1/trusted_controller_arbiter_v1.go'
       - 'remote/agent-v1/trusted_controller_arbiter_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_permit_v1.go'
+      - 'remote/agent-v1/trusted_controller_permit_v1_test.go'
       - 'remote/agent-v1/signaling.go'
       - '.github/workflows/trusted-controller-v1.yml'
   workflow_dispatch:
@@ -62,8 +64,9 @@ jobs:
           $handshake = Get-Content 'remote/agent-v1/trusted_controller_handshake_v1.go' -Raw
           $activation = Get-Content 'remote/agent-v1/trusted_controller_activation_v1.go' -Raw
           $arbiter = Get-Content 'remote/agent-v1/trusted_controller_arbiter_v1.go' -Raw
+          $permit = Get-Content 'remote/agent-v1/trusted_controller_permit_v1.go' -Raw
           $wireSignaling = Get-Content 'remote/agent-v1/signaling.go' -Raw
-          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay + "`n" + $trustedSignaling + "`n" + $handshake + "`n" + $activation + "`n" + $arbiter + "`n" + $wireSignaling
+          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay + "`n" + $trustedSignaling + "`n" + $handshake + "`n" + $activation + "`n" + $arbiter + "`n" + $permit + "`n" + $wireSignaling
           if ($auth -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
           if ($auth -notmatch 'AgentID:\s+challenge.AgentID' -or $auth -notmatch 'SessionID:\s+challenge.SessionID') { throw 'challenge-to-session binding missing' }
           if ($auth -notmatch 'Revoked') { throw 'revocation gate missing' }
@@ -95,6 +98,11 @@ jobs:
           if ($arbiter -notmatch 'owner authorization is required to reset trusted emergency stop') { throw 'owner-authorized emergency reset missing' }
           if ($arbiter -notmatch 'InvalidateController') { throw 'active-session revocation invalidation missing' }
           if ($arbiter -match '\.Activate\(') { throw 'arbiter must not activate the dispatcher in groundwork' }
+          if ($permit -notmatch 'NewTrustedControlPermit' -or $permit -notmatch 'func \(p TrustedControlPermit\) Validate') { throw 'final trusted control permit gate missing' }
+          if ($permit -notmatch 'arbiter.ValidateActive' -or $permit -notmatch 'ArbiterGeneration') { throw 'permit continuous arbiter binding missing' }
+          if ($permit -notmatch 'trusted activation lease does not allow input') { throw 'screen-only input permit rejection missing' }
+          if ($permit -notmatch 'status.EmergencyStop.Engaged') { throw 'permit emergency-stop invalidation missing' }
+          if ($permit -match '\.Activate\(') { throw 'control permit must not activate the dispatcher in groundwork' }
           if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'OS input execution or arbitrary command execution is forbidden in auth groundwork'
           }
