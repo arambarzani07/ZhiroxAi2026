@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	mbOK            = 0x00000000
-	mbYesNo         = 0x00000004
-	mbIconWarning   = 0x00000030
-	mbSetForeground = 0x00010000
-	mbTopMost       = 0x00040000
-	idYes           = 6
-	maxPairingStdinBytes = 128
+	mbOK                  = 0x00000000
+	mbYesNo               = 0x00000004
+	mbIconWarning         = 0x00000030
+	mbSetForeground       = 0x00010000
+	mbTopMost             = 0x00040000
+	idYes                 = 6
+	maxPairingStdinBytes  = 128
 )
 
 var (
@@ -105,6 +105,10 @@ func runPairing() int {
 }
 
 func runApprove() int {
+	mode, err := parseConsentCapabilityMode(argValue("--capability-mode="))
+	if err != nil {
+		return 12
+	}
 	label := sanitizeDisplayText(decodedDisplayArg("--controller-label-b64=", "--controller-label="), maxDisplayLabelChars)
 	fingerprint := sanitizeDisplayText(decodedDisplayArg("--controller-fingerprint-b64=", "--controller-fingerprint="), maxFingerprintChars)
 	if label == "" {
@@ -114,9 +118,10 @@ func runApprove() int {
 		fingerprint = "Not provided"
 	}
 	body := fmt.Sprintf(
-		"A remote screen session has been requested.\r\n\r\nController: %s\r\nFingerprint: %s\r\n\r\nAllow this screen-viewing session?\r\n\r\nMouse and keyboard control are disabled in this version.",
+		"A remote session has been requested.\r\n\r\nController: %s\r\nFingerprint: %s\r\n\r\n%s\r\n\r\nAllow this session?",
 		label,
 		fingerprint,
+		consentApprovalNotice(mode),
 	)
 	ret, err := showMessage(
 		"Zhirox Remote Session Request",
@@ -133,15 +138,21 @@ func runApprove() int {
 }
 
 func runIndicator() int {
+	mode, err := parseConsentCapabilityMode(argValue("--capability-mode="))
+	if err != nil {
+		return 22
+	}
 	label := sanitizeDisplayText(decodedDisplayArg("--controller-label-b64=", "--controller-label="), maxDisplayLabelChars)
 	if label == "" {
 		label = "Remote controller"
 	}
 	body := fmt.Sprintf(
-		"REMOTE SCREEN SESSION IS ACTIVE\r\n\r\nController: %s\r\n\r\nThe remote side can view this screen. Mouse and keyboard control are disabled.\r\n\r\nClick OK (or close this window) to disconnect the remote session immediately.",
+		"%s\r\n\r\nController: %s\r\n\r\n%s\r\n\r\nClick OK (or close this window) to disconnect the remote session immediately.",
+		map[bool]string{true: "REMOTE CONTROL SESSION IS ACTIVE", false: "REMOTE SCREEN SESSION IS ACTIVE"}[mode != consentScreenOnly],
 		label,
+		consentActiveNotice(mode),
 	)
-	_, err := showMessage(
+	_, err = showMessage(
 		"Zhirox Remote Session Active — Disconnect",
 		body,
 		mbOK|mbIconWarning|mbSetForeground|mbTopMost,
