@@ -1,0 +1,46 @@
+name: Remote Input v2 Protocol Safety
+
+on:
+  push:
+    branches:
+      - feature/remote-input-v2-attended
+    paths:
+      - 'remote/agent-v1/control_protocol_v2.go'
+      - 'remote/agent-v1/control_protocol_v2_test.go'
+      - '.github/workflows/remote-input-v2-protocol.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Run protocol tests
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Enforce attended-only phase boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $protocol = Get-Content 'remote/agent-v1/control_protocol_v2.go' -Raw
+          if ($protocol -notmatch 'MaxControlEvents') { throw 'bounded control batch missing' }
+          if ($protocol -notmatch 'replayed or out of order') { throw 'sequence/replay gate missing' }
+          $canary = Get-Content 'remote/agent-v1/canary_signaling.go' -Raw
+          if ($canary -notmatch '"clipboard":\s+false') { throw 'clipboard must remain disabled' }
+          if ($canary -notmatch '"file_transfer":\s+false') { throw 'file transfer must remain disabled' }
+          if ($canary -notmatch '"audio":\s+false') { throw 'audio must remain disabled' }
+          $consent = Get-Content 'remote/consent-v1/main_windows.go' -Raw
+          if ($consent -notmatch 'Yes/No approval') { throw 'local approval boundary missing' }
