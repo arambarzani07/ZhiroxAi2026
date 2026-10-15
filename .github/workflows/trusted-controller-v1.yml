@@ -17,6 +17,8 @@ on:
       - 'remote/agent-v1/trusted_controller_signaling_v1_test.go'
       - 'remote/agent-v1/trusted_controller_handshake_v1.go'
       - 'remote/agent-v1/trusted_controller_handshake_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_activation_v1.go'
+      - 'remote/agent-v1/trusted_controller_activation_v1_test.go'
       - 'remote/agent-v1/signaling.go'
       - '.github/workflows/trusted-controller-v1.yml'
   workflow_dispatch:
@@ -56,8 +58,9 @@ jobs:
           $replay = Get-Content 'remote/agent-v1/trusted_controller_replay_v1.go' -Raw
           $trustedSignaling = Get-Content 'remote/agent-v1/trusted_controller_signaling_v1.go' -Raw
           $handshake = Get-Content 'remote/agent-v1/trusted_controller_handshake_v1.go' -Raw
+          $activation = Get-Content 'remote/agent-v1/trusted_controller_activation_v1.go' -Raw
           $wireSignaling = Get-Content 'remote/agent-v1/signaling.go' -Raw
-          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay + "`n" + $trustedSignaling + "`n" + $handshake + "`n" + $wireSignaling
+          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay + "`n" + $trustedSignaling + "`n" + $handshake + "`n" + $activation + "`n" + $wireSignaling
           if ($auth -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
           if ($auth -notmatch 'AgentID:\s+challenge.AgentID' -or $auth -notmatch 'SessionID:\s+challenge.SessionID') { throw 'challenge-to-session binding missing' }
           if ($auth -notmatch 'Revoked') { throw 'revocation gate missing' }
@@ -78,6 +81,11 @@ jobs:
           if ($handshake -notmatch 'StartTrustedControllerHandshake' -or $handshake -notmatch 'CompleteTrustedControllerHandshake') { throw 'trusted signaling handshake entry points missing' }
           if ($handshake -notmatch 'trustedHandshakeIntentHash' -or $handshake -notmatch 'intentHash') { throw 'sealed pending signaling intent missing' }
           if ($handshake -notmatch 'VerifyTrustedControllerOnce' -or $handshake -notmatch 'GrantTrustedSession' -or $handshake -notmatch 'BindTrustedGrantToSignaling') { throw 'trusted handshake verification/grant/binding chain missing' }
+          if ($activation -notmatch 'NewTrustedActivationLease' -or $activation -notmatch 'ValidateFor') { throw 'trusted activation lease policy missing' }
+          if ($activation -notmatch 'auth.ControllerID != grant.ControllerID' -or $activation -notmatch 'grant.ControllerID != binding.ControllerID') { throw 'trusted activation identity binding missing' }
+          if ($activation -notmatch 'grant.Mouse != binding.Mouse' -or $activation -notmatch 'grant.Keyboard != binding.Keyboard') { throw 'trusted activation capability binding missing' }
+          if ($activation -notmatch 'binding.ExpiresAt.Before\(expiresAt\)') { throw 'trusted activation shortest-expiry policy missing' }
+          if ($activation -match '\.Activate\(') { throw 'activation policy must not activate the dispatcher in groundwork' }
           if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'OS input execution or arbitrary command execution is forbidden in auth groundwork'
           }
