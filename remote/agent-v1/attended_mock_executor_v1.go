@@ -55,10 +55,11 @@ func NewMockReviewedAttendedExecutor(id string, mouse, keyboard bool, audit Atte
 	if !mouse && !keyboard {
 		return nil, errors.New("mock reviewed attended executor requires mouse or keyboard capability")
 	}
-	if audit == nil {
-		return nil, errors.New("attended execution audit sink is required")
+	guardedAudit, err := NewAttendedExecutionAuditIntegrityGuard(audit)
+	if err != nil {
+		return nil, err
 	}
-	return &MockReviewedAttendedExecutor{id: id, mouse: mouse, keyboard: keyboard, audit: audit}, nil
+	return &MockReviewedAttendedExecutor{id: id, mouse: mouse, keyboard: keyboard, audit: guardedAudit}, nil
 }
 
 func (m *MockReviewedAttendedExecutor) ExecutorID() string {
@@ -84,14 +85,18 @@ func (m *MockReviewedAttendedExecutor) SupportsAttendedCapabilities(mouse, keybo
 // MockAttendedExecutionObservation wraps one already-consumed metadata session
 // and only revalidates/audits its lifecycle. It exposes no execution operation.
 type MockAttendedExecutionObservation struct {
-	mu       sync.Mutex
-	adapter  *MockReviewedAttendedExecutor
-	runtime  *AttendedControlRuntime
-	grant    AttendedActivationGrant
-	review   AttendedExecutionReview
-	session  *AttendedExecutionSession
-	closed   bool
-	closedAt time.Time
+	mu                sync.Mutex
+	adapter           *MockReviewedAttendedExecutor
+	runtime           *AttendedControlRuntime
+	grant             AttendedActivationGrant
+	review            AttendedExecutionReview
+	session           *AttendedExecutionSession
+	closed            bool
+	closedAt          time.Time
+	sessionClosed     bool
+	closeAuditEvent   AttendedExecutionAuditEvent
+	closeAuditReady   bool
+	closeAuditAcked   bool
 }
 
 func newAttendedMockAuditEvent(eventType string, session *AttendedExecutionSession, now time.Time) (AttendedExecutionAuditEvent, error) {
@@ -172,34 +177,54 @@ func (o *MockAttendedExecutionObservation) Validate(now time.Time) error {
 	return o.session.Validate(o.runtime, o.grant, o.review, o.adapter, now)
 }
 
+func (o *MockAttendedExecutionObservation) recordCloseAuditLocked(now time.Time) error {
+	if o.closeAuditAcked {
+		return nil
+	}
+	if o.adapter == nil || o.adapter.audit == nil {
+		return errors.New("attended execution audit sink is unavailable")
+	}
+	if o.session == nil {
+		return errors.New("mock attended execution observation session is missing")
+	}
+	if !o.closeAuditReady {
+		event, err := newAttendedMockAuditEvent(AttendedMockAuditSessionClosed, o.session, now)
+		if err != nil {
+			return err
+		}
+		o.closeAuditEvent = event
+		o.closeAuditReady = true
+	}
+	if err := o.adapter.audit.RecordAttendedExecutionAudit(o.closeAuditEvent); err != nil {
+		return errors.New("attended execution audit close failed")
+	}
+	o.closeAuditAcked = true
+	return nil
+}
+
 // Close terminates the metadata session before recording the close audit event.
-// It is idempotent. If the audit sink fails, the session still remains closed.
+// It is idempotent after success. If the audit sink fails transiently, later
+// Close calls retry the exact same close event/EventID while the session remains
+// closed throughout the retry window.
 func (o *MockAttendedExecutionObservation) Close(now time.Time) error {
 	if o == nil {
 		return errors.New("mock attended execution observation is required")
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.closed {
-		return nil
+
+	if !o.closed {
+		o.closed = true
+		o.closedAt = trustedArbiterNow(now)
 	}
-	o.closed = true
-	o.closedAt = trustedArbiterNow(now)
 	if o.session == nil {
 		return errors.New("mock attended execution observation session is missing")
 	}
-	if err := o.session.Close(now); err != nil {
-		return err
+	if !o.sessionClosed {
+		if err := o.session.Close(now); err != nil {
+			return err
+		}
+		o.sessionClosed = true
 	}
-	if o.adapter == nil || o.adapter.audit == nil {
-		return errors.New("attended execution audit sink is unavailable")
-	}
-	event, err := newAttendedMockAuditEvent(AttendedMockAuditSessionClosed, o.session, now)
-	if err != nil {
-		return err
-	}
-	if err := o.adapter.audit.RecordAttendedExecutionAudit(event); err != nil {
-		return errors.New("attended execution audit close failed")
-	}
-	return nil
+	return o.recordCloseAuditLocked(now)
 }
