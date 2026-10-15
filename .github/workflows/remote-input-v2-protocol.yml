@@ -9,6 +9,8 @@ on:
       - 'remote/agent-v1/control_protocol_v2_test.go'
       - 'remote/agent-v1/capabilities_v2.go'
       - 'remote/agent-v1/capabilities_v2_test.go'
+      - 'remote/consent-v1/capabilities_v2.go'
+      - 'remote/consent-v1/capabilities_v2_test.go'
       - '.github/workflows/remote-input-v2-protocol.yml'
   workflow_dispatch:
 
@@ -24,7 +26,7 @@ jobs:
         with:
           go-version: '1.24.x'
           cache: false
-      - name: Run protocol tests
+      - name: Run agent protocol tests
         working-directory: remote/agent-v1
         shell: pwsh
         run: |
@@ -37,6 +39,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --exit-code -- go.mod
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run consent disclosure tests
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Enforce attended-only phase boundary
         shell: pwsh
         run: |
@@ -47,6 +58,9 @@ jobs:
           $caps = Get-Content 'remote/agent-v1/capabilities_v2.go' -Raw
           if ($caps -notmatch 'RequiresInputApproval') { throw 'explicit input approval contract missing' }
           if ($caps -notmatch 'clipboard, file transfer, and audio are disabled in phase 2') { throw 'phase 2 capability boundary missing' }
+          $consentCaps = Get-Content 'remote/consent-v1/capabilities_v2.go' -Raw
+          if ($consentCaps -notmatch 'screen-input') { throw 'input capability disclosure mode missing' }
+          if ($consentCaps -notmatch 'control the mouse and keyboard') { throw 'approval text must explicitly disclose mouse and keyboard control' }
           $canary = Get-Content 'remote/agent-v1/canary_signaling.go' -Raw
           if ($canary -notmatch '"clipboard":\s+false') { throw 'clipboard must remain disabled' }
           if ($canary -notmatch '"file_transfer":\s+false') { throw 'file transfer must remain disabled' }
