@@ -1,0 +1,88 @@
+name: Trusted Controller Attended Candidate
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/**'
+      - 'remote/consent-v1/**'
+      - 'remote/controller-v1/**'
+      - '.github/workflows/trusted-controller-attended-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-readiness:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Test and build remote agent
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o "$env:RUNNER_TEMP\ZhiroxRemoteScreen-attended-check.exe" ./cmd/zhirox-remote-screen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test and build consent helper
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o "$env:RUNNER_TEMP\ZhiroxRemoteConsent-attended-check.exe" .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Enforce non-execution candidate boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agent = Get-ChildItem 'remote/agent-v1' -Recurse -File -Include *.go | Get-Content -Raw
+          $consent = Get-ChildItem 'remote/consent-v1' -Recurse -File -Include *.go | Get-Content -Raw
+          $controller = Get-Content 'remote/controller-v1/app.js' -Raw
+          $combined = $agent + "`n" + $consent
+
+          if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'platform input injection or arbitrary command execution is forbidden in readiness candidate'
+          }
+          if ($combined -match '\.Activate\(') {
+            throw 'readiness candidate must not activate ControlDispatcher'
+          }
+          if ($controller -notmatch 'screen-only policy is active') {
+            throw 'live controller must remain screen-only'
+          }
+          if ($controller -notmatch 'capabilities:\s*\{\s*screen_stream:\s*true\s*\}') {
+            throw 'live controller capability request must remain screen-only'
+          }
+          if (-not (Test-Path "$env:RUNNER_TEMP\ZhiroxRemoteScreen-attended-check.exe")) {
+            throw 'remote agent readiness build missing'
+          }
+          if (-not (Test-Path "$env:RUNNER_TEMP\ZhiroxRemoteConsent-attended-check.exe")) {
+            throw 'consent helper readiness build missing'
+          }
+
+      - name: Remove ephemeral readiness binaries
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Force -ErrorAction SilentlyContinue "$env:RUNNER_TEMP\ZhiroxRemoteScreen-attended-check.exe"
+          Remove-Item -Force -ErrorAction SilentlyContinue "$env:RUNNER_TEMP\ZhiroxRemoteConsent-attended-check.exe"
