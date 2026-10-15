@@ -106,6 +106,10 @@ jobs:
           if ($readiness -notmatch 'runtime.isActive\(\)') { throw 'activation readiness must require live visible runtime' }
           if ($readiness -notmatch 'gate.ValidateControlMessage') { throw 'activation readiness must revalidate attended authorization gate' }
           if ($readiness -notmatch 'dispatcher.Deactivate') { throw 'activation readiness validation must fail closed dispatcher on authorization failure' }
+          if ($readiness -notmatch 'ReadinessID' -or $readiness -notmatch 'crypto/rand') { throw 'cryptographically unique activation readiness identity missing' }
+          if ($readiness -notmatch 'NewAttendedActivationConsumer' -or $readiness -notmatch 'Consume\(') { throw 'one-time activation readiness consumer missing' }
+          if ($readiness -notmatch 'already been consumed') { throw 'activation readiness replay rejection missing' }
+          if ($readiness -notmatch 'AttendedActivationGrant' -or $readiness -notmatch 'ConsumedAt') { throw 'non-executing consumed activation grant missing' }
           if ($binding -notmatch 'NewAttendedAgentSession') { throw 'attended runtime to WebRTC session binding missing' }
           if ($binding -notmatch 'cfg.Runtime.ControlGate\(\)') { throw 'attended session must inherit runtime-owned per-message gate' }
           if ($binding -notmatch 'cfg.Session.Control = cfg.Runtime.dispatcher') { throw 'attended session must inherit runtime-owned dispatcher' }
