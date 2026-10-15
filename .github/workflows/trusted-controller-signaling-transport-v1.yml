@@ -7,6 +7,8 @@ on:
     paths:
       - 'remote/agent-v1/signaling_transport_guard_v1.go'
       - 'remote/agent-v1/signaling_transport_guard_v1_test.go'
+      - 'remote/agent-v1/signaling_session_lifecycle_v1.go'
+      - 'remote/agent-v1/signaling_session_lifecycle_v1_test.go'
       - 'remote/agent-v1/signaling_transport_remote_v1.go'
       - 'remote/agent-v1/signaling_transport_remote_v1_test.go'
       - 'remote/agent-v1/orchestrator_transport_v1.go'
@@ -32,9 +34,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          gofmt -w signaling_transport_guard_v1.go signaling_transport_guard_v1_test.go signaling_transport_remote_v1.go signaling_transport_remote_v1_test.go orchestrator_transport_v1.go orchestrator_transport_v1_test.go
+          gofmt -w signaling_transport_guard_v1.go signaling_transport_guard_v1_test.go signaling_session_lifecycle_v1.go signaling_session_lifecycle_v1_test.go signaling_transport_remote_v1.go signaling_transport_remote_v1_test.go orchestrator_transport_v1.go orchestrator_transport_v1_test.go
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git diff --exit-code -- signaling_transport_guard_v1.go signaling_transport_guard_v1_test.go signaling_transport_remote_v1.go signaling_transport_remote_v1_test.go orchestrator_transport_v1.go orchestrator_transport_v1_test.go
+          git diff --exit-code -- signaling_transport_guard_v1.go signaling_transport_guard_v1_test.go signaling_session_lifecycle_v1.go signaling_session_lifecycle_v1_test.go signaling_transport_remote_v1.go signaling_transport_remote_v1_test.go orchestrator_transport_v1.go orchestrator_transport_v1_test.go
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go mod tidy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -51,6 +53,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $files = @(
             'remote/agent-v1/signaling_transport_guard_v1.go',
+            'remote/agent-v1/signaling_session_lifecycle_v1.go',
             'remote/agent-v1/signaling_transport_remote_v1.go',
             'remote/agent-v1/orchestrator_transport_v1.go'
           )
@@ -60,8 +63,12 @@ jobs:
           # string literals remain scanned fail-closed.
           $codeOnly = (($all -split "`n") | Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
           if ($all -notmatch 'SignalTransportGuard') { throw 'session-scoped signaling transport guard missing' }
+          if ($all -notmatch 'SignalSessionLifecycleGuard') { throw 'signaling lifecycle guard missing' }
+          if ($all -notmatch 'SignalHeartbeatInterval') { throw 'bounded signaling heartbeat interval missing' }
+          if ($all -notmatch 'SignalConnectionLossGrace') { throw 'bounded connection-loss grace window missing' }
           if ($all -notmatch 'InboundRejected') { throw 'transport observability counters missing' }
           if ($all -notmatch 'LastSignalID') { throw 'transport replay cursor state missing' }
+          if ($all -notmatch 'LifecycleSnapshot') { throw 'lifecycle snapshot boundary missing' }
           if ($all -notmatch 'TransportHardenedRemoteSignaling') { throw 'transport-hardened signaling wrapper missing' }
           if ($codeOnly -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'platform input injection or arbitrary command execution is forbidden in signaling transport boundary'
