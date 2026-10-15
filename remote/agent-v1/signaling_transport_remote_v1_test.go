@@ -9,15 +9,15 @@ import (
 )
 
 type transportRemoteSignalingFake struct {
-	mu        sync.Mutex
-	pending   []PendingSession
-	signals   []Signal
-	approved  []string
-	rejected  []string
-	active    []string
-	posted    []string
-	pollErr   error
-	postErr   error
+	mu       sync.Mutex
+	pending  []PendingSession
+	signals  []Signal
+	approved []string
+	rejected []string
+	active   []string
+	posted   []string
+	pollErr  error
+	postErr  error
 }
 
 func (f *transportRemoteSignalingFake) Pending(context.Context) ([]PendingSession, error) {
@@ -78,12 +78,12 @@ func validTransportPending(id string, now time.Time) PendingSession {
 		State:     "pending",
 		ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339Nano),
 		RequestedCapabilities: map[string]any{
-			"screen_stream": true,
-			"mouse": false,
-			"keyboard": false,
-			"clipboard": false,
-			"file_transfer": false,
-			"audio": false,
+			"screen_stream":  true,
+			"mouse":          false,
+			"keyboard":       false,
+			"clipboard":      false,
+			"file_transfer":  false,
+			"audio":          false,
 		},
 	}
 }
