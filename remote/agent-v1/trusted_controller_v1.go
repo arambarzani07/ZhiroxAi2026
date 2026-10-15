@@ -19,12 +19,12 @@ const (
 )
 
 type TrustedControllerRecord struct {
-	ID             string
-	Label          string
-	PublicKey      ed25519.PublicKey
-	Revoked        bool
-	AllowedScreen  bool
-	AllowedMouse   bool
+	ID              string
+	Label           string
+	PublicKey       ed25519.PublicKey
+	Revoked         bool
+	AllowedScreen   bool
+	AllowedMouse    bool
 	AllowedKeyboard bool
 }
 
@@ -44,11 +44,14 @@ type TrustedChallenge struct {
 
 type TrustedAuthorization struct {
 	ControllerID string
+	AgentID      string
+	SessionID    string
 	Label        string
 	Fingerprint  string
 	Screen       bool
 	Mouse        bool
 	Keyboard     bool
+	IssuedAt     time.Time
 	ExpiresAt    time.Time
 }
 
@@ -155,13 +158,17 @@ func VerifyTrustedController(
 	if err != nil {
 		return TrustedAuthorization{}, err
 	}
+	now = now.UTC()
 	return TrustedAuthorization{
 		ControllerID: record.ID,
+		AgentID:      challenge.AgentID,
+		SessionID:    challenge.SessionID,
 		Label:        strings.TrimSpace(record.Label),
 		Fingerprint:  fingerprint,
 		Screen:       record.AllowedScreen,
 		Mouse:        record.AllowedMouse,
 		Keyboard:     record.AllowedKeyboard,
-		ExpiresAt:    now.UTC().Add(TrustedSessionTTL),
+		IssuedAt:     now,
+		ExpiresAt:    now.Add(TrustedSessionTTL),
 	}, nil
 }
