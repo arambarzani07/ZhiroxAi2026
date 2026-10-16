@@ -123,6 +123,15 @@ func newMockWebRTCE2E(t *testing.T) (*AgentSession, *webrtc.PeerConnection, *web
 		_ = agent.Close()
 		t.Fatal(err)
 	}
+	// The real browser receives an agent-created control channel, but its offer
+	// must first advertise an SCTP m-line. This inert negotiation-only channel
+	// makes the local test peer produce that m-line and is never used for input.
+	negotiationOnly, err := browser.CreateDataChannel("zhirox-negotiation-only", nil)
+	if err != nil {
+		_ = browser.Close()
+		_ = agent.Close()
+		t.Fatal(err)
+	}
 
 	channelCh := make(chan *webrtc.DataChannel, 1)
 	browser.OnDataChannel(func(channel *webrtc.DataChannel) {
@@ -196,6 +205,7 @@ func newMockWebRTCE2E(t *testing.T) (*AgentSession, *webrtc.PeerConnection, *web
 	waitDataChannelState(t, channel, webrtc.DataChannelStateOpen, 5*time.Second)
 
 	t.Cleanup(func() {
+		_ = negotiationOnly.Close()
 		_ = channel.Close()
 		_ = browser.Close()
 		_ = agent.Close()
