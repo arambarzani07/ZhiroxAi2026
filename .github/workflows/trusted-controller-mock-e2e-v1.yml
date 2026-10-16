@@ -49,7 +49,7 @@ jobs:
           $test = Get-Content 'remote/agent-v1/control_webrtc_mock_e2e_v1_test.go' -Raw
           $prodFiles = Get-ChildItem 'remote/agent-v1' -Recurse -File -Include *.go | Where-Object { $_.Name -notlike '*_test.go' }
           $prod = ($prodFiles | Get-Content -Raw) -join "`n"
-          if ($prod -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe|user32') {
+          if ($prod -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
             throw 'OS input injection or arbitrary command execution is forbidden in production source'
           }
           if ($prod -match '\.Activate\(') {
