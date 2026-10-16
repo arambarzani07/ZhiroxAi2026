@@ -1,0 +1,108 @@
+name: Trusted Controller v1 Safety
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/trusted_controller_v1.go'
+      - 'remote/agent-v1/trusted_controller_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_lifecycle_v1.go'
+      - 'remote/agent-v1/trusted_controller_lifecycle_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_session_v1.go'
+      - 'remote/agent-v1/trusted_controller_session_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_replay_v1.go'
+      - 'remote/agent-v1/trusted_controller_replay_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_signaling_v1.go'
+      - 'remote/agent-v1/trusted_controller_signaling_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_handshake_v1.go'
+      - 'remote/agent-v1/trusted_controller_handshake_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_activation_v1.go'
+      - 'remote/agent-v1/trusted_controller_activation_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_arbiter_v1.go'
+      - 'remote/agent-v1/trusted_controller_arbiter_v1_test.go'
+      - 'remote/agent-v1/trusted_controller_permit_v1.go'
+      - 'remote/agent-v1/trusted_controller_permit_v1_test.go'
+      - 'remote/agent-v1/signaling.go'
+      - '.github/workflows/trusted-controller-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Run remote agent tests
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Enforce trusted-controller safety boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $auth = Get-Content 'remote/agent-v1/trusted_controller_v1.go' -Raw
+          $lifecycle = Get-Content 'remote/agent-v1/trusted_controller_lifecycle_v1.go' -Raw
+          $session = Get-Content 'remote/agent-v1/trusted_controller_session_v1.go' -Raw
+          $replay = Get-Content 'remote/agent-v1/trusted_controller_replay_v1.go' -Raw
+          $trustedSignaling = Get-Content 'remote/agent-v1/trusted_controller_signaling_v1.go' -Raw
+          $handshake = Get-Content 'remote/agent-v1/trusted_controller_handshake_v1.go' -Raw
+          $activation = Get-Content 'remote/agent-v1/trusted_controller_activation_v1.go' -Raw
+          $arbiter = Get-Content 'remote/agent-v1/trusted_controller_arbiter_v1.go' -Raw
+          $permit = Get-Content 'remote/agent-v1/trusted_controller_permit_v1.go' -Raw
+          $wireSignaling = Get-Content 'remote/agent-v1/signaling.go' -Raw
+          $combined = $auth + "`n" + $lifecycle + "`n" + $session + "`n" + $replay + "`n" + $trustedSignaling + "`n" + $handshake + "`n" + $activation + "`n" + $arbiter + "`n" + $permit + "`n" + $wireSignaling
+          if ($auth -notmatch 'ed25519.Verify') { throw 'cryptographic controller verification missing' }
+          if ($auth -notmatch 'AgentID:\s+challenge.AgentID' -or $auth -notmatch 'SessionID:\s+challenge.SessionID') { throw 'challenge-to-session binding missing' }
+          if ($auth -notmatch 'Revoked') { throw 'revocation gate missing' }
+          if ($auth -notmatch 'TrustedChallengeTTL') { throw 'bounded challenge TTL missing' }
+          if ($auth -notmatch 'TrustedSessionTTL') { throw 'bounded session authorization TTL missing' }
+          if ($lifecycle -notmatch 'OwnerAuthorizationID') { throw 'explicit owner authorization reference missing' }
+          if ($lifecycle -notmatch 'MarkTrustedControllerRevoked') { throw 'revocation persistence contract missing' }
+          if ($lifecycle -notmatch 'AppendTrustedControllerAudit') { throw 'audit persistence contract missing' }
+          if ($lifecycle -notmatch 'TrustedAuditEnrolled' -or $lifecycle -notmatch 'TrustedAuditRevoked') { throw 'enrollment/revocation audit events missing' }
+          if ($session -notmatch 'TrustedSessionCapabilityRequest') { throw 'explicit requested capability contract missing' }
+          if ($session -notmatch 'requested.Mouse && !auth.Mouse' -or $session -notmatch 'requested.Keyboard && !auth.Keyboard') { throw 'capability escalation guard missing' }
+          if ($replay -notmatch 'TrustedChallengeReplayGuard' -or $replay -notmatch 'ConsumeTrustedChallenge') { throw 'atomic replay-consumption contract missing' }
+          if ($replay -notmatch 'VerifyTrustedControllerOnce') { throw 'one-time trusted verification entry point missing' }
+          if ($wireSignaling -notmatch 'ControllerID' -or $wireSignaling -notmatch 'controller_id') { throw 'controller identity missing from signaling contract' }
+          if ($trustedSignaling -notmatch 'ParseRemoteCapabilitiesV2') { throw 'strict signaling capability parser missing' }
+          if ($trustedSignaling -notmatch 'grant.ControllerID != intent.ControllerID' -or $trustedSignaling -notmatch 'grant.SessionID != intent.SessionID') { throw 'trusted signaling identity binding missing' }
+          if ($trustedSignaling -notmatch 'grant.Screen != intent.Requested.Screen' -or $trustedSignaling -notmatch 'grant.Mouse != intent.Requested.Mouse' -or $trustedSignaling -notmatch 'grant.Keyboard != intent.Requested.Keyboard') { throw 'trusted signaling exact capability binding missing' }
+          if ($handshake -notmatch 'StartTrustedControllerHandshake' -or $handshake -notmatch 'CompleteTrustedControllerHandshake') { throw 'trusted signaling handshake entry points missing' }
+          if ($handshake -notmatch 'trustedHandshakeIntentHash' -or $handshake -notmatch 'intentHash') { throw 'sealed pending signaling intent missing' }
+          if ($handshake -notmatch 'VerifyTrustedControllerOnce' -or $handshake -notmatch 'GrantTrustedSession' -or $handshake -notmatch 'BindTrustedGrantToSignaling') { throw 'trusted handshake verification/grant/binding chain missing' }
+          if ($activation -notmatch 'NewTrustedActivationLease' -or $activation -notmatch 'ValidateFor') { throw 'trusted activation lease policy missing' }
+          if ($activation -notmatch 'auth.ControllerID != grant.ControllerID' -or $activation -notmatch 'grant.ControllerID != binding.ControllerID') { throw 'trusted activation identity binding missing' }
+          if ($activation -notmatch 'grant.Mouse != binding.Mouse' -or $activation -notmatch 'grant.Keyboard != binding.Keyboard') { throw 'trusted activation capability binding missing' }
+          if ($activation -notmatch 'binding.ExpiresAt.Before\(expiresAt\)') { throw 'trusted activation shortest-expiry policy missing' }
+          if ($activation -match '\.Activate\(') { throw 'activation policy must not activate the dispatcher in groundwork' }
+          if ($arbiter -notmatch 'TrustedControllerRevocationChecker' -or $arbiter -notmatch 'IsTrustedControllerRevoked') { throw 'trusted revocation fail-closed hook missing' }
+          if ($arbiter -notmatch 'another trusted controller session is already active') { throw 'single-controller arbitration missing' }
+          if ($arbiter -notmatch 'EngageEmergencyStop' -or $arbiter -notmatch 'ResetEmergencyStop') { throw 'trusted emergency-stop latch missing' }
+          if ($arbiter -notmatch 'owner authorization is required to reset trusted emergency stop') { throw 'owner-authorized emergency reset missing' }
+          if ($arbiter -notmatch 'InvalidateController') { throw 'active-session revocation invalidation missing' }
+          if ($arbiter -match '\.Activate\(') { throw 'arbiter must not activate the dispatcher in groundwork' }
+          if ($permit -notmatch 'NewTrustedControlPermit' -or $permit -notmatch 'func \(p TrustedControlPermit\) Validate') { throw 'final trusted control permit gate missing' }
+          if ($permit -notmatch 'arbiter.ValidateActive' -or $permit -notmatch 'ArbiterGeneration') { throw 'permit continuous arbiter binding missing' }
+          if ($permit -notmatch 'trusted activation lease does not allow input') { throw 'screen-only input permit rejection missing' }
+          if ($permit -notmatch 'status.EmergencyStop.Engaged') { throw 'permit emergency-stop invalidation missing' }
+          if ($permit -match '\.Activate\(') { throw 'control permit must not activate the dispatcher in groundwork' }
+          if ($combined -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'OS input execution or arbitrary command execution is forbidden in auth groundwork'
+          }

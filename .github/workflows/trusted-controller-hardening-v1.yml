@@ -1,0 +1,79 @@
+name: Trusted Controller Hardening Gate v1
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/attended_audit_integrity_v1.go'
+      - 'remote/agent-v1/attended_audit_integrity_v1_test.go'
+      - 'remote/agent-v1/attended_mock_executor_v1.go'
+      - 'remote/agent-v1/attended_mock_executor_v1_test.go'
+      - '.github/workflows/trusted-controller-hardening-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-hardening:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Run hardening tests and vet
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Enforce metadata-only hardening boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $audit = Get-Content 'remote/agent-v1/attended_audit_integrity_v1.go' -Raw
+          $mock = Get-Content 'remote/agent-v1/attended_mock_executor_v1.go' -Raw
+          $all = $audit + "`n" + $mock
+          if ($audit -notmatch 'AttendedExecutionAuditIntegrityGuard') { throw 'audit integrity guard missing' }
+          if ($audit -notmatch 'event id collision') { throw 'audit EventID collision defense missing' }
+          if ($audit -notmatch 'close has no matching open') { throw 'audit ordering defense missing' }
+          if ($mock -notmatch 'closeAuditEvent') { throw 'stable close audit retry state missing' }
+          if ($mock -notmatch 'closeAuditAcked') { throw 'close audit acknowledgement state missing' }
+          if ($all -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'platform input injection or arbitrary command execution is forbidden in hardening boundary'
+          }
+          if ($all -match '\.Activate\(' -or $all -match '\.Dispatch\(' -or $all -match 'Execute\(') {
+            throw 'hardening boundary must remain non-executing'
+          }
+          if ($all -match 'ControlPayload|json.RawMessage|PointerX|PointerY|KeyCode') {
+            throw 'hardening boundary must not accept control payloads'
+          }
+
+  linux-race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Run race detector
+        working-directory: remote/agent-v1
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod
+          go test -race ./...

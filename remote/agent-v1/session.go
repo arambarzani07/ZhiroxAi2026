@@ -27,6 +27,7 @@ type Config struct {
 	Signal             SignalSink
 	Status             StatusSink
 	Control            *ControlDispatcher
+	ControlGate        ControlMessageGate
 }
 
 type AgentSession struct {
@@ -35,12 +36,16 @@ type AgentSession struct {
 	screen          *webrtc.TrackLocalStaticSample
 	control         *webrtc.DataChannel
 	controlDispatch *ControlDispatcher
+	controlGate     ControlMessageGate
 	closed          bool
 }
 
 func NewAgentSession(cfg Config) (*AgentSession, error) {
 	if cfg.Signal == nil {
 		return nil, errors.New("signal sink is required")
+	}
+	if cfg.Control != nil && cfg.ControlGate == nil {
+		return nil, errors.New("control dispatcher requires attended authorization gate")
 	}
 
 	mediaEngine := &webrtc.MediaEngine{}
@@ -81,11 +86,20 @@ func NewAgentSession(cfg Config) (*AgentSession, error) {
 		_ = pc.Close()
 		return nil, err
 	}
-	// Phase 2 transport boundary: the DataChannel may feed only the abstract,
-	// approval-gated dispatcher. No Windows input implementation is provided by
-	// this layer. Missing/inactive dispatchers therefore remain fail-closed.
+	// Phase 2 transport boundary: a control message may reach only the abstract
+	// dispatcher after the attended authorization gate re-validates the trusted
+	// permit and fresh local approval for that exact session. No Windows input
+	// implementation is provided by this layer.
 	control.OnMessage(func(message webrtc.DataChannelMessage) {
 		if cfg.Control == nil {
+			return
+		}
+		if cfg.ControlGate == nil {
+			_ = control.Close()
+			return
+		}
+		if err := cfg.ControlGate.ValidateControlMessage(time.Now().UTC()); err != nil {
+			_ = control.Close()
 			return
 		}
 		if err := cfg.Control.Dispatch(message.Data); err != nil {
@@ -93,7 +107,13 @@ func NewAgentSession(cfg Config) (*AgentSession, error) {
 		}
 	})
 
-	s := &AgentSession{pc: pc, screen: track, control: control, controlDispatch: cfg.Control}
+	s := &AgentSession{
+		pc:              pc,
+		screen:          track,
+		control:         control,
+		controlDispatch: cfg.Control,
+		controlGate:     cfg.ControlGate,
+	}
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
 			return

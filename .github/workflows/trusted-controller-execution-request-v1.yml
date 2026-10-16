@@ -1,0 +1,64 @@
+name: Trusted Controller Execution Request Gate v1
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/attended_execution_request_v1.go'
+      - 'remote/agent-v1/attended_execution_request_v1_test.go'
+      - 'remote/agent-v1/attended_execution_review_v1.go'
+      - 'remote/agent-v1/attended_activation_readiness_v1.go'
+      - '.github/workflows/trusted-controller-execution-request-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Run remote agent tests
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Enforce one-time non-executing lifecycle boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-Content 'remote/agent-v1/attended_execution_request_v1.go' -Raw
+
+          if ($source -notmatch 'AttendedExecutionRequestTTL') { throw 'bounded execution request TTL missing' }
+          if ($source -notmatch 'AttendedExecutionSessionTTL') { throw 'bounded execution session TTL missing' }
+          if ($source -notmatch 'AttendedExecutionRequestConsumer') { throw 'one-time execution request consumer missing' }
+          if ($source -notmatch 'already been consumed') { throw 'execution request replay rejection missing' }
+          if ($source -notmatch 'AttendedExecutionSession') { throw 'execution session lifecycle record missing' }
+          if ($source -notmatch 'review.Validate\(runtime, grant, executor, now\)') { throw 'review chain revalidation missing' }
+          if ($source -notmatch 'crypto/rand') { throw 'cryptographically random request/session identity missing' }
+          if ($source -notmatch 'func \(s \*AttendedExecutionSession\) Close') { throw 'explicit execution-session close lifecycle missing' }
+          if ($source -match '\.Activate\(' -or $source -match '\.Dispatch\(' -or $source -match 'Execute\(') {
+            throw 'execution request lifecycle must remain non-executing'
+          }
+          if ($source -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe') {
+            throw 'OS input injection or arbitrary command execution is forbidden'
+          }
+          if ($source -match 'ControlPayload|json\.RawMessage') {
+            throw 'execution request lifecycle must remain metadata-only'
+          }

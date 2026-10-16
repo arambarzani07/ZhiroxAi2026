@@ -1,0 +1,48 @@
+name: Trusted Controller Browser Input Harness v1
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/controller-v1/control_v2.js'
+      - 'remote/controller-v1/control_v2.test.cjs'
+      - 'remote/controller-v1/attended_input_v1.js'
+      - 'remote/controller-v1/attended_input_v1.test.cjs'
+      - '.github/workflows/trusted-controller-browser-input-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-input-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Run browser protocol and attended-input tests
+        run: |
+          set -euo pipefail
+          node --test remote/controller-v1/control_v2.test.cjs remote/controller-v1/attended_input_v1.test.cjs
+
+      - name: Enforce browser-only non-execution boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(remote/controller-v1/control_v2.js remote/controller-v1/attended_input_v1.js)
+          content="$(cat "${files[@]}")"
+          if grep -Eqi 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd\.exe|WScript\.Shell|user32' <<<"$content"; then
+            echo 'OS input injection or arbitrary command execution is forbidden in browser harness' >&2
+            exit 1
+          fi
+          if grep -Eqi 'clipboard|file_transfer|filetransfer|audio' <<<"$content"; then
+            echo 'browser input harness must not add clipboard/file/audio capability' >&2
+            exit 1
+          fi
+          grep -q 'browser focus lost' remote/controller-v1/attended_input_v1.js
+          grep -q 'page hidden' remote/controller-v1/attended_input_v1.js
+          grep -q 'releaseAll' remote/controller-v1/attended_input_v1.js
