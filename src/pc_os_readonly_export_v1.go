@@ -20,19 +20,19 @@ const (
 )
 
 type pcOSReadOnlyExportManifest struct {
-	Version         string `json:"version"`
-	ExportID        string `json:"export_id"`
-	SourcePath      string `json:"source_path"`
-	StagedPath      string `json:"staged_path"`
-	ManifestPath    string `json:"manifest_path"`
-	Size            int64  `json:"size"`
-	SHA256          string `json:"sha256"`
-	SourceModified  string `json:"source_modified_utc"`
-	CreatedUTC      string `json:"created_utc"`
-	ReadOnly        bool   `json:"read_only"`
+	Version          string `json:"version"`
+	ExportID         string `json:"export_id"`
+	SourcePath       string `json:"source_path"`
+	StagedPath       string `json:"staged_path"`
+	ManifestPath     string `json:"manifest_path"`
+	Size             int64  `json:"size"`
+	SHA256           string `json:"sha256"`
+	SourceModified   string `json:"source_modified_utc"`
+	CreatedUTC       string `json:"created_utc"`
+	ReadOnly         bool   `json:"read_only"`
 	ApprovalRequired bool   `json:"approval_required"`
-	TransferEnabled bool   `json:"transfer_enabled"`
-	NetworkUpload   bool   `json:"network_upload"`
+	TransferEnabled  bool   `json:"transfer_enabled"`
+	NetworkUpload    bool   `json:"network_upload"`
 }
 
 func pcOSReadOnlyExportActiveRoot() string {
