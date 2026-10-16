@@ -1,0 +1,96 @@
+name: Read-Only Backup Export Gate v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/read-only-backup-export-v1
+    paths:
+      - 'src/pc_os_readonly_export_v1.go'
+      - 'src/pc_os_readonly_export_v1_test.go'
+      - 'tools/patch_readonly_export_v1.py'
+      - 'tools/patch_relay_readonly_export_v1.py'
+      - 'docs/PC_OS_READ_ONLY_BACKUP_EXPORT_V1.md'
+      - '.github/workflows/read-only-backup-export-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  linux-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Formatting
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -d src/pc_os_readonly_export_v1.go src/pc_os_readonly_export_v1_test.go)"
+
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          go test -count=10 src/pc_os_readonly_export_v1.go src/pc_os_readonly_export_v1_test.go
+
+      - name: Windows compile-only check
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go test -c -o /tmp/read-only-export.test.exe src/pc_os_readonly_export_v1.go src/pc_os_readonly_export_v1_test.go
+          test -s /tmp/read-only-export.test.exe
+
+      - name: Command wiring patch test
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc
+          cat > buildsrc/main.go <<'EOF'
+          package main
+          func fixture() {
+          	switch "x" {
+          	case "pc_os_disaster_recovery":
+          		out, err = pcOSWindowsDisasterRecovery()
+          	case "support_bundle":
+          		out, err = supportBundle()
+          	}
+          }
+          EOF
+          python3 tools/patch_readonly_export_v1.py
+          grep -q 'case "pc_os_export_prepare_latest"' buildsrc/main.go
+          grep -q 'STAGE READ-ONLY BACKUP EXPORT' buildsrc/main.go
+
+      - name: Relay approval-gate patch test
+        run: |
+          set -euo pipefail
+          cp ops/supabase/zhirox-pc-relay-v15.ts /tmp/relay-v15.ts
+          python3 tools/patch_relay_readonly_export_v1.py /tmp/relay-v15.ts /tmp/relay-export.ts
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('/tmp/relay-export.ts').read_text()
+          read = s[s.index('const READ_ACTIONS'):s.index('const PC_OS_READ_ACTIONS')]
+          pc_read = s[s.index('const PC_OS_READ_ACTIONS'):s.index('const MUTATION_ACTIONS')]
+          mutation = s[s.index('const MUTATION_ACTIONS'):s.index('const TRUSTED_UPDATE_BINARY')]
+          action = '"pc_os_export_prepare_latest"'
+          assert action not in read
+          assert action not in pc_read
+          assert action in mutation
+          assert 'enqueue_approved_pc_relay_command' in s
+          PY
+
+      - name: Non-transfer boundary
+        run: |
+          set -euo pipefail
+          if grep -Eqi '"net/http"|"net"|websocket|http\.NewRequest|http\.Post|client\.Do|multipart|base64\.StdEncoding|supabase|webrtc' src/pc_os_readonly_export_v1.go; then
+            echo 'Read-only export staging must not contain a network/file-transfer implementation.' >&2
+            exit 1
+          fi
+          grep -q 'TransferEnabled:  false' src/pc_os_readonly_export_v1.go
+          grep -q 'NetworkUpload:    false' src/pc_os_readonly_export_v1.go
+          grep -q 'explicit approval is required' src/pc_os_readonly_export_v1.go
+          grep -q 'staged backup SHA-256 mismatch' src/pc_os_readonly_export_v1.go
