@@ -1,0 +1,75 @@
+name: Trusted Controller Mock E2E Gate v1
+
+on:
+  push:
+    branches:
+      - feature/trusted-controller-v1
+    paths:
+      - 'remote/agent-v1/control_webrtc_mock_e2e_v1_test.go'
+      - 'remote/agent-v1/session.go'
+      - 'remote/agent-v1/control_dispatch_v2.go'
+      - 'remote/agent-v1/control_protocol_v2.go'
+      - 'remote/agent-v1/attended_control_message_gate_v1.go'
+      - 'remote/controller-v1/control_v2.js'
+      - 'remote/controller-v1/attended_input_v1.js'
+      - '.github/workflows/trusted-controller-mock-e2e-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-mock-e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Run attended WebRTC mock E2E tests
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -run 'TestAttendedWebRTCMockE2E' -count=3 ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Enforce mock-only execution boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = Get-Content 'remote/agent-v1/control_webrtc_mock_e2e_v1_test.go' -Raw
+          $prodFiles = Get-ChildItem 'remote/agent-v1' -Recurse -File -Include *.go | Where-Object { $_.Name -notlike '*_test.go' }
+          $prod = ($prodFiles | Get-Content -Raw) -join "`n"
+          if ($prod -match 'SendInput|mouse_event|keybd_event|CreateRemoteThread|PowerShell|cmd.exe|user32') {
+            throw 'OS input injection or arbitrary command execution is forbidden in production source'
+          }
+          if ($prod -match '\.Activate\(') {
+            throw 'production source must not activate the control dispatcher'
+          }
+          if ($test -notmatch 'mockE2EControlSink') { throw 'mock E2E sink missing' }
+          if ($test -notmatch 'mockE2EAttendedGate') { throw 'attended mock authorization gate missing' }
+
+  linux-race-mock-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Run race-checked mock E2E
+        working-directory: remote/agent-v1
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod
+          go test -race -run 'TestAttendedWebRTCMockE2E' -count=2 ./...
