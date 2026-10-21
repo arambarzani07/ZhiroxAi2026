@@ -21,6 +21,10 @@ on:
       - 'tools/render_remote_canary_assets_v517.py'
       - 'tools/patch_remote_mf_startup_v1.py'
 
+  pull_request:
+    branches:
+      - release/v517-remote-screen-canary
+
 permissions:
   contents: read
 
