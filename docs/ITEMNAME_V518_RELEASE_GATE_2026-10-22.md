@@ -34,3 +34,15 @@
 
 ## Status
 **NOT approved for production deployment.** No write command or installation was sent to the market PC during this review.
+
+## 2026-10-22 isolated TLS hardening progress
+
+- Implemented `src/pc_os_itemname_sqlargs_v518.go` with a fixed `SuperMarket` target, local SQL Server endpoint (`localhost`), integrated Windows auth (`-E`), encrypted transport request (`-N`) and certificate-name validation (`-F`). No `-C` trust override, no remote SQL target, no SQL username/password or fallback disabling certificate validation.
+- Windows monitor now obtains the local OS hostname and passes it as the expected certificate hostname. **This is an explicit initial assumption, not a discovered certificate name**; connection must fail closed if the actual certificate does not match or is not trusted. Confirm the certificate CN/SAN, issuer/trust and SQL Server instance independently before enabling monitoring.
+- 10/10 isolated Go unit tests passed under Linux; policy and SQL argument tests also successfully cross-compiled into a Windows x64 test executable. **Neither result verifies an actual SQL connection or the complete Windows agent integration.**
+- Added a branch-only GitHub Actions workflow `.github/workflows/itemname-v518-isolated-tests.yml` to run policy and TLS tests on Linux and Windows. **Remote CI conclusion must be checked separately; success is not yet claimed.**
+- Independently verified the Ed25519 signature against the recorded public key and the canonical string `5.1.8|469b8758409199fa6b87aad77b78534ce4e127968e4b36a409278bd4acb7d46e|19963904`. No independently fetched binary hash verification is claimed.
+- Relay latest observed active agent is still v5.1.7; production v5.1.8 remains staged and not publishable. No ItemName event or ItemName snapshot was present in relay at this verification.
+- **Still blocked:** Production certificate and database SELECT connectivity validation; live schema verification; event ingestion and idempotency validation; explicit policy decision for agent-owned local JSON baseline; signed Windows build and approval before cutover.
+
+**Do not promote, merge into a deployed release, or install on the market PC until all release gates are satisfied.**
