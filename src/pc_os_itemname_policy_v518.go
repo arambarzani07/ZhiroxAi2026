@@ -2,8 +2,6 @@ package main
 
 import (
   "errors"
-  "fmt"
-  "math/big"
   "sort"
   "strings"
 )
@@ -27,13 +25,29 @@ type pcOSItemNameChange struct {
   CartonPrice string `json:"cartonPrice,omitempty"`
 }
 
+// SQL Server decimal/money values must remain human-readable base-10 amounts.
+// Rational representation (for example 401/4) is unsuitable for price alerts.
 func pcOSItemNameCanonicalPrice(v string) (string,error) {
-  v = strings.TrimSpace(v)
-  if v == "" {return "",nil}
-  n:=new(big.Rat)
-  if _,ok:=n.SetString(v);!ok{return "",fmt.Errorf("invalid decimal price")}
-  if n.Sign()<0{return "",errors.New("negative price rejected")}
-  return n.RatString(),nil
+  v=strings.TrimSpace(v)
+  if v=="" {return "",nil}
+  if len(v)>64 {return "",errors.New("decimal price oversized")}
+  if strings.HasPrefix(v,"+") {v=v[1:]}
+  if strings.HasPrefix(v,"-") {return "",errors.New("negative price rejected")}
+  parts:=strings.Split(v,".")
+  if len(parts)>2 || parts[0]=="" || (len(parts)==2 && parts[1]=="") {
+    return "",errors.New("invalid decimal price")
+  }
+  for _,part:=range parts {
+    for _,digit:=range part {
+      if digit<'0'||digit>'9' {return "",errors.New("invalid decimal price")}
+    }
+  }
+  integer:=strings.TrimLeft(parts[0],"0")
+  if integer=="" {integer="0"}
+  if len(parts)==1 {return integer,nil}
+  fraction:=strings.TrimRight(parts[1],"0")
+  if fraction=="" {return integer,nil}
+  return integer+"."+fraction,nil
 }
 
 func pcOSItemNameValidate(rows []pcOSItemNameRow)(map[string]pcOSItemNameRow,error) {
