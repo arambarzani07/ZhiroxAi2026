@@ -30,3 +30,8 @@ jobs:
             src/pc_os_itemname_policy_v518_test.go \
             src/pc_os_itemname_sqlargs_v518.go \
             src/pc_os_itemname_sqlargs_v518_test.go
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run relay idempotency guard tests
+        run: node supabase/pc-relay-candidates/itemname-event-guard.test.mjs
