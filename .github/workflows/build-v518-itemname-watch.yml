@@ -1,0 +1,263 @@
+name: Build Zhirox PC OS v5.1.8 Read-Only ItemName Watch
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/v518-itemname-price-watch
+    paths:
+      - '.github/workflows/build-v517-remote-screen-canary.yml'
+      - 'src/pc_os_remote_canary_v517_windows.go'
+      - 'src/pc_os_remote_agent_launcher_v1_windows.go'
+      - 'remote/agent-v1/**'
+      - 'remote/consent-v1/**'
+      - 'remote/encoder-mf-v1/**'
+      - 'tools/patch_v517_remote_canary.py'
+      - 'src/pc_os_itemname_policy_v518.go'
+      - 'src/pc_os_itemname_policy_v518_test.go'
+      - 'src/pc_os_itemname_watch_v518_windows.go'
+      - 'tools/patch_v518_itemname.py'
+      - '.github/workflows/build-v518-itemname-watch.yml'
+      - 'tools/render_remote_canary_assets_v517.py'
+      - 'tools/patch_remote_mf_startup_v1.py'
+
+permissions:
+  contents: read
+
+jobs:
+  build-v518:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+      ZHIROX_SOURCE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Verify exact source checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          $expected = "$env:ZHIROX_SOURCE_COMMIT".Trim().ToLowerInvariant()
+          if ($actual -ne $expected) { throw "source checkout mismatch: $actual != $expected" }
+
+      - name: Validate price-only business rules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -v src/pc_os_itemname_policy_v518.go src/pc_os_itemname_policy_v518_test.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and probe native H264 encoder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch_remote_mf_startup_v1.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual C++ toolchain not found' }
+          $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $dir = (Resolve-Path 'remote\encoder-mf-v1').Path
+          $cmd = '"' + $dev + '" -arch=x64 -host_arch=x64 && cd /d "' + $dir + '" && cl /nologo /std:c++17 /EHsc /LD encoder.cpp /Fe:ZhiroxMFH264Encoder.dll /link mfplat.lib mf.lib mfuuid.lib ole32.lib oleaut32.lib && cl /nologo /std:c++17 /EHsc probe.cpp /Fe:probe.exe'
+          cmd.exe /d /s /c $cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$dir\probe.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build visible consent helper
+        working-directory: remote/consent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ZhiroxRemoteConsent.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test and build credential-free screen agent
+        working-directory: remote/agent-v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go mod tidy
+          $dll = (Resolve-Path '..\encoder-mf-v1\ZhiroxMFH264Encoder.dll').Path
+          $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLowerInvariant()
+          $env:ZHIROX_MF_ENCODER_DLL = $dll
+          $env:ZHIROX_MF_ENCODER_SHA256 = $sha
+          go test -v ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-s -w' -o ZhiroxRemoteScreenAgent.exe ./cmd/zhirox-remote-screen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Restore Supervisor source through v5.1.6
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'buildsrc' | Out-Null
+          $b64 = (Get-Content 'source-v5.0.1.part001' -Raw) + (Get-Content 'source-v5.0.1.part002' -Raw) + (Get-Content 'source-v5.0.1.part003' -Raw)
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\zhirox-source.tar.gz", [Convert]::FromBase64String(($b64 -replace '\s','')))
+          tar -xzf "$env:RUNNER_TEMP\zhirox-source.tar.gz" -C buildsrc
+          python tools/patch_downloader_v503.py
+          python tools/patch_v505.py
+          python tools/patch_v506.py
+          python tools/patch_v507.py
+          python tools/patch_v508.py
+          python tools/patch_v509.py
+          Copy-Item src/pc_os_v510.go buildsrc/pc_os_v510.go
+          Copy-Item src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          Copy-Item src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          Copy-Item src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          Copy-Item src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          Copy-Item src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          Copy-Item src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          Copy-Item src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python tools/patch_v510.py
+          python tools/patch_trust_v510.py
+          python tools/patch_self_updater_v510.py
+          Copy-Item src/pc_os_recovery_v511_windows.go buildsrc/pc_os_recovery_v511_windows.go
+          python tools/patch_v511.py
+          Copy-Item src/pc_os_watchdog_policy_v512.go buildsrc/pc_os_watchdog_policy_v512.go
+          Copy-Item src/pc_os_watchdog_v512_windows.go buildsrc/pc_os_watchdog_v512_windows.go
+          python tools/patch_v512.py
+          Copy-Item src/pc_os_screen_observability.go buildsrc/pc_os_screen_observability.go
+          Copy-Item src/pc_os_screen_observability_windows.go buildsrc/pc_os_screen_observability_windows.go
+          python tools/patch_screen_observability_v1.py
+          python tools/patch_v514.py
+          python tools/patch_screen_observability_gdi_v515.py
+          python tools/patch_v515.py
+          python tools/patch_screen_observability_dib_v516.py
+          python tools/patch_v516_compilefix.py
+          python tools/patch_v516.py
+
+      - name: Embed pinned canary components and patch v5.1.7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'buildsrc\remote-assets-v517' | Out-Null
+          Copy-Item 'remote\agent-v1\ZhiroxRemoteScreenAgent.exe' 'buildsrc\remote-assets-v517\ZhiroxRemoteScreenAgent.exe'
+          Copy-Item 'remote\consent-v1\ZhiroxRemoteConsent.exe' 'buildsrc\remote-assets-v517\ZhiroxRemoteConsent.exe'
+          Copy-Item 'remote\encoder-mf-v1\ZhiroxMFH264Encoder.dll' 'buildsrc\remote-assets-v517\ZhiroxMFH264Encoder.dll'
+          Copy-Item 'src\pc_os_remote_agent_launcher_v1_windows.go' 'buildsrc\pc_os_remote_agent_launcher_v1_windows.go'
+          Copy-Item 'src\pc_os_remote_canary_v517_windows.go' 'buildsrc\pc_os_remote_canary_v517_windows.go'
+          python tools/render_remote_canary_assets_v517.py
+          python tools/patch_v517_remote_canary.py
+          Copy-Item 'src/pc_os_itemname_policy_v518.go' 'buildsrc/pc_os_itemname_policy_v518.go'
+          Copy-Item 'src/pc_os_itemname_watch_v518_windows.go' 'buildsrc/pc_os_itemname_watch_v518_windows.go'
+          python tools/patch_v518_itemname.py
+          $next = (Get-Content 'release-gates\v5.1.1-next-public-key.hex' -Raw).Trim().ToLowerInvariant()
+          if ($next -ne '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143') { throw 'pinned update key mismatch' }
+          "package main`n`nconst pcOSPinnedUpdatePublicKeyHex = `"$next`"`n" | Set-Content -Encoding UTF8 'buildsrc\update_trust_v510.go'
+          Get-ChildItem 'buildsrc' -Filter '*.go' | ForEach-Object { gofmt -w $_.FullName }
+
+      - name: v5.1.7 safety invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $main = Get-Content 'buildsrc\main.go' -Raw
+          $pc = Get-Content 'buildsrc\pc_os_v510.go' -Raw
+          $canary = Get-Content 'buildsrc\pc_os_remote_canary_v517_windows.go' -Raw
+          $bootstrap = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\bootstrap_windows.go' -Raw
+          $input = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
+          if ($main -notmatch '5\.1\.8') { throw 'runtime version 5.1.8 missing' }
+          if ($pc -notmatch 'const pcOSVersion = "5\.1\.8"') { throw 'pcOSVersion 5.1.8 missing' }
+          if ($main -notmatch 'pc_os_itemname_probe' -or $main -notmatch 'pc_os_itemname_status') { throw 'ItemName routes missing' }
+          if ($main -notmatch 'pcOSItemNameWatchLoop') { throw 'ItemName background loop missing' }
+          if ($pc -notmatch 'itemname_price_watch_read_only') { throw 'read-only monitor module marker missing' }
+          $watch = Get-Content 'buildsrc/pc_os_itemname_watch_v518_windows.go' -Raw
+          if ($watch -match 'powershell.exe|cmd.exe|BACKUP DATABASE|UPDATE dbo|DELETE FROM|INSERT INTO|RESTORE DATABASE|ALTER DATABASE') { throw 'ItemName monitor contains forbidden mutation or shell' }
+          if ($main -notmatch 'pc_os_remote_canary_start') { throw 'canary start route missing' }
+          if ($main -notmatch 'pc_os_remote_canary_status') { throw 'canary status route missing' }
+          if ($canary -notmatch [regex]::Escape('https://zhirox-remote-control-canary-aviglm.v2.appdeploy.ai')) { throw 'exact AppDeploy canary URL pin missing' }
+          if ($canary -notmatch 'pairing_code_returned.*false') { throw 'pairing code must not be returned through relay' }
+          if ($canary -notmatch 'attended_approval_required.*true') { throw 'attended approval invariant missing' }
+          if ($canary -notmatch 'input_control.*false') { throw 'input control must remain disabled' }
+          if ($bootstrap -notmatch 'canary bootstrap refuses production agent credentials') { throw 'canary production-credential refusal missing' }
+          if ($input -notmatch 'pcOSRemoteInputRuntimeEnabled\s*=\s*false') { throw 'remote input runtime must remain disabled' }
+          $forbidden = @('SendInput','mouse_event','keybd_event','OpenClipboard','SetClipboardData','cmd.exe','powershell.exe')
+          foreach ($needle in $forbidden) {
+            if ($canary -match [regex]::Escape($needle)) { throw "forbidden canary capability: $needle" }
+          }
+          if ($canary -match 'AgentSecret|ZHIROX_AGENT_SECRET') { throw 'canary runtime must not use production agent secret' }
+          if ($canary -match 'localStorage|sessionStorage') { throw 'canary runtime must not persist controller credentials' }
+          if ($main -notmatch 'pcOSZeroTouchWatchdogEnsureLoop') { throw 'watchdog invariant missing' }
+          if ($main -notmatch 'pc_os_screenshot') { throw 'v5.1.6 screen observability regression' }
+
+      - name: Build embedded Supervisor v5.1.7
+        working-directory: buildsrc
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path '..\channel-v518' | Out-Null
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ..\channel-v518\ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go pc_os_screen_observability.go pc_os_screen_observability_windows.go pc_os_remote_agent_launcher_v1_windows.go pc_os_remote_canary_v517_windows.go pc_os_remote_canary_assets_v517_windows.go pc_os_itemname_policy_v518.go pc_os_itemname_watch_v518_windows.go update_trust_v510.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Create immutable unsigned signing request
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $supervisor = 'channel-v518\ZhiroxAISupervisor.exe'
+          $sha = (Get-FileHash -Algorithm SHA256 $supervisor).Hash.ToLowerInvariant()
+          $size = (Get-Item $supervisor).Length
+          $agentSha = (Get-FileHash -Algorithm SHA256 'remote\agent-v1\ZhiroxRemoteScreenAgent.exe').Hash.ToLowerInvariant()
+          $consentSha = (Get-FileHash -Algorithm SHA256 'remote\consent-v1\ZhiroxRemoteConsent.exe').Hash.ToLowerInvariant()
+          $encoderSha = (Get-FileHash -Algorithm SHA256 'remote\encoder-mf-v1\ZhiroxMFH264Encoder.dll').Hash.ToLowerInvariant()
+          $key = '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
+          Set-Content -Encoding ASCII 'channel-v518\ZhiroxAISupervisor.exe.sha256' $sha
+          $metadata = [ordered]@{
+            version = '5.1.8'
+            from_version = '5.1.7'
+            file = 'ZhiroxAISupervisor.exe'
+            sha256 = $sha
+            size = $size
+            algorithm = 'Ed25519'
+            signing_public_key_hex = $key
+            source_commit = $env:ZHIROX_SOURCE_COMMIT
+            zero_touch_recovery = $true
+            screen_observability_read_only = $true
+            remote_screen_canary_embedded = $true
+            remote_screen_canary_url = 'https://zhirox-remote-control-canary-aviglm.v2.appdeploy.ai'
+            attended_approval_required = $true
+            pairing_code_returned = $false
+            remote_input_enabled = $false
+            unattended_access = $false
+            agent_sha256 = $agentSha
+            consent_sha256 = $consentSha
+            encoder_sha256 = $encoderSha
+            publishable = $false
+          }
+          $metadata | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 'channel-v518\metadata.json'
+          [ordered]@{canonical="5.1.8|$sha|$size";version='5.1.8';sha256=$sha;size=$size;signing_public_key_hex=$key} | ConvertTo-Json | Set-Content -Encoding UTF8 'channel-v518\signing-request.json'
+
+      - name: Verify final artifact invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $metadata = Get-Content 'channel-v518\metadata.json' -Raw | ConvertFrom-Json
+          if ($metadata.publishable -ne $false) { throw 'candidate must remain blocked/non-publishable' }
+          if ($metadata.version -ne '5.1.8' -or $metadata.publishable -ne $false) { throw 'v5.1.8 candidate must remain blocked' }
+          if ($metadata.remote_input_enabled -ne $false -or $metadata.unattended_access -ne $false) { throw 'remote input/unattended must remain disabled' }
+          if ($metadata.attended_approval_required -ne $true -or $metadata.pairing_code_returned -ne $false) { throw 'attended/pairing privacy invariant failed' }
+          $actual = (Get-FileHash -Algorithm SHA256 'channel-v518\ZhiroxAISupervisor.exe').Hash.ToLowerInvariant()
+          if ($actual -ne $metadata.sha256) { throw 'Supervisor SHA mismatch' }
+
+      - name: Upload v5.1.7 candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.8-${{ github.sha }}
+          path: channel-v518/*
+          if-no-files-found: error
