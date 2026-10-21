@@ -1,0 +1,32 @@
+name: ItemName v5.1.8 isolated security tests
+
+on:
+  push:
+    branches:
+      - fix/v518-itemname-decimal-price-20261022
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-policy-and-sql-args:
+    name: ItemName policy and TLS args (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Verify policy, decimal prices and TLS command construction
+        shell: bash
+        run: |
+          go test -count=1 -v \
+            src/pc_os_itemname_policy_v518.go \
+            src/pc_os_itemname_policy_v518_test.go \
+            src/pc_os_itemname_sqlargs_v518.go \
+            src/pc_os_itemname_sqlargs_v518_test.go
