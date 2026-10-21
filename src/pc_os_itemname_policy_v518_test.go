@@ -30,3 +30,35 @@ func TestItemNameDecimalAndNegative(t *testing.T){
  if a!=b{t.Fatalf("%q != %q",a,b)}
  if _,e:=pcOSItemNameCanonicalPrice("-3");e==nil{t.Fatal("negative")}
 }
+
+func TestItemNameDecimalPricesForAlerts(t *testing.T){
+ cases:=[]struct{input,expected string}{
+  {"00100.2500","100.25"},
+  {"100.25","100.25"},
+  {"0000.0000","0"},
+  {"00100.0000","100"},
+  {"0000.5000","0.5"},
+  {" +0005.0900 ","5.09"},
+  {"9007199254740993.123456789","9007199254740993.123456789"},
+ }
+ for _,tc:=range cases {
+  got,err:=pcOSItemNameCanonicalPrice(tc.input)
+  if err!=nil||got!=tc.expected {t.Fatalf("canonical price %q: got=%q want=%q err=%v",tc.input,got,tc.expected,err)}
+ }
+}
+
+func TestItemNameRejectNonDecimalPrices(t *testing.T){
+ for _,input:=range []string{"-0.01","-0","1/3","1e3","NaN","1,000","12.","0..1","abc"}{
+  if _,err:=pcOSItemNameCanonicalPrice(input);err==nil {t.Fatalf("accepted invalid price %q",input)}
+ }
+}
+
+func TestItemNamePriceEventUsesDecimalNotRational(t *testing.T){
+ before:=pcOSIR("7","1200.25","24000.5000")
+ after:=pcOSIR("7","1200.50","24000.5")
+ changes,err:=pcOSItemNameDiff([]pcOSItemNameRow{before},[]pcOSItemNameRow{after})
+ if err!=nil||len(changes)!=1 {t.Fatalf("unexpected events: %+v err=%v",changes,err)}
+ if changes[0].OldPrice!="1200.25"||changes[0].NewPrice!="1200.5"||changes[0].PriceField!="SalePrice"{
+  t.Fatalf("prices must be normal base-10 decimal strings: %+v",changes[0])
+ }
+}
