@@ -50,8 +50,9 @@ func(w *pcOSItemNameWriter)Write(p []byte)(int,error){
 func pcOSItemNameQuery(ctx context.Context,db,q string)([]string,error){
  if db==""||len(db)>128||strings.ContainsAny(db,"\r\n\x00"){return nil,errors.New("database name invalid")}
  bin,err:=pcOSFindSQLCmd();if err!=nil{return nil,err}
- cmd:=hiddenCommandContext(ctx,bin,"-S","localhost","-E","-C","-d",db,
-  "-b","-h","-1","-w","8192","-y","8192","-l","10","-t","90","-r","1","-Q",q)
+ certHost,err:=os.Hostname();if err!=nil{return nil,err}
+ sqlArgs,err:=pcOSItemNameSQLCmdArgs(db,q,certHost);if err!=nil{return nil,err}
+ cmd:=hiddenCommandContext(ctx,bin,sqlArgs...)
  stdout,err:=cmd.StdoutPipe();if err!=nil{return nil,err}
  stderr,err:=cmd.StderrPipe();if err!=nil{return nil,err}
  if err=cmd.Start();err!=nil{return nil,err}
