@@ -76,18 +76,12 @@ func pcOSItemNameQuery(ctx context.Context,db,q string)([]string,error){
  return lines,nil
 }
 func pcOSItemNameFindDB(ctx context.Context)(string,error){
- names,err:=pcOSItemNameQuery(ctx,"master","SET NOCOUNT ON; SELECT name FROM sys.databases WHERE database_id>4 AND state_desc='ONLINE' ORDER BY name;")
+ // The authorized database is fixed. Never scan unrelated business databases.
+ const db="SuperMarket"
+ rows,err:=pcOSItemNameQuery(ctx,db,"SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID(N'dbo.ItemName',N'U') IS NOT NULL THEN '1' ELSE '0' END;")
  if err!=nil{return "",err}
- found:=[]string{}
- for _,db:=range names{
-  if len(db)>128||strings.ContainsAny(db,"\r\n\x00"){return "",errors.New("unsafe database metadata")}
-  x,e:=pcOSItemNameQuery(ctx,db,"SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID(N'dbo.ItemName',N'U') IS NOT NULL THEN '1' ELSE '0' END;")
-  if e==nil&&len(x)==1&&x[0]=="1"{found=append(found,db)}
- }
- if len(found)==1{return found[0],nil}
- if len(found)==0{return "",errors.New("dbo.ItemName not accessible")}
- for _,db:=range found{if strings.EqualFold(db,"SuperMarket"){return db,nil}}
- return "",errors.New("multiple ItemName databases: cannot choose safely")
+ if len(rows)!=1||rows[0]!="1"{return "",errors.New("SuperMarket.dbo.ItemName not accessible")}
+ return db,nil
 }
 func pcOSItemNameDecodeHex(v string)(string,error){
  b,err:=hex.DecodeString(strings.TrimPrefix(v,"0x"));if err!=nil{return "",err}
