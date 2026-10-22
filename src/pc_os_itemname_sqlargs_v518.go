@@ -7,9 +7,9 @@ import (
 
 // The only queries authorized on the protected supermarket database.
 const (
- pcOSItemNameSchemaProbeSQL = "SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID(N\\'dbo.ItemName\\',N\\'U\\') IS NOT NULL THEN \\'1\\' ELSE \\'0\\' END;"
+ pcOSItemNameSchemaProbeSQL = "SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID(N'dbo.ItemName',N'U') IS NOT NULL THEN '1' ELSE '0' END;"
  pcOSItemNameTopOneSQL = "SET NOCOUNT ON; SELECT TOP(1) CONVERT(VARCHAR(40),ItemNameID) FROM dbo.ItemName ORDER BY ItemNameID;"
- const pcOSItemNameSelect = "SET NOCOUNT ON; SET LOCK_TIMEOUT 3000; SELECT CONVERT(VARCHAR(40),ItemNameID) + '|' + COALESCE(CONVERT(VARCHAR(MAX),CONVERT(VARBINARY(MAX),CONVERT(NVARCHAR(512),ItemName)),2),'') + '|' + COALESCE(CONVERT(VARCHAR(MAX),CONVERT(VARBINARY(MAX),CONVERT(NVARCHAR(128),ItemCode)),2),'') + '|' + COALESCE(CONVERT(VARCHAR(64),SalePrice),'') + '|' + COALESCE(CONVERT(VARCHAR(64),WholeSalePrice),'') FROM dbo.ItemName ORDER BY ItemNameID;"
+ pcOSItemNameSelect = "SET NOCOUNT ON; SET LOCK_TIMEOUT 3000; SELECT CONVERT(VARCHAR(40),ItemNameID) + '|' + COALESCE(CONVERT(VARCHAR(MAX),CONVERT(VARBINARY(MAX),CONVERT(NVARCHAR(512),ItemName)),2),'') + '|' + COALESCE(CONVERT(VARCHAR(MAX),CONVERT(VARBINARY(MAX),CONVERT(NVARCHAR(128),ItemCode)),2),'') + '|' + COALESCE(CONVERT(VARCHAR(64),SalePrice),'') + '|' + COALESCE(CONVERT(VARCHAR(64),WholeSalePrice),'') FROM dbo.ItemName ORDER BY ItemNameID;"
 )
 
 // pcOSItemNameSQLCmdArgs builds a fixed, read-only ItemName connection.
