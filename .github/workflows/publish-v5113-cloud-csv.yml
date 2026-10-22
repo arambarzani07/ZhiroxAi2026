@@ -1,0 +1,69 @@
+name: Publish Exact v5.1.13 Private CSV Candidate Transport
+on:
+  push:
+    branches:
+      - feature/v5113-private-cloud-csv-20261023
+    paths:
+      - '.github/workflows/publish-v5113-cloud-csv.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+env:
+  SOURCE_HEAD_SHA: '46b208507293d677428a25b146599eb537c532b9'
+  SOURCE_RUN: '39855946026'
+  ARTIFACT_NAME: 'Zhirox-PC-OS-v5.1.13-46b208507293d677428a25b146599eb537c532b9'
+  RELEASE_TAG: 'v5.1.13-candidate-46b20850'
+jobs:
+  exact-candidate:
+    if: github.repository == 'arambarzani07/ZhiroxAi2026'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate immutable successful Windows build and candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run view "$SOURCE_RUN" --repo "${{ github.repository }}" --json conclusion,headSha \
+            --jq 'if .conclusion == "success" and .headSha == env.SOURCE_HEAD_SHA then "pass" else error("source build mismatch") end' | grep -qx pass
+          mkdir transport
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name "$ARTIFACT_NAME" --dir transport
+          python3 - <<'PY'
+          import json,os,hashlib,pathlib
+          p=pathlib.Path('transport')
+          with (p/'metadata.json').open(encoding='utf-8-sig') as f:m=json.load(f)
+          with (p/'signing-request.json').open(encoding='utf-8-sig') as f:s=json.load(f)
+          b=(p/'ZhiroxAISupervisor.exe').read_bytes()
+          digest=hashlib.sha256(b).hexdigest()
+          assert m['version']==s['version']=='5.1.13'
+          assert m['from_version']=='5.1.12'
+          assert digest==m['sha256']==s['sha256']
+          assert len(b)==int(m['size'])==int(s['size'])
+          assert s['canonical']=='5.1.13|'+digest+'|'+str(len(b))
+          assert m['source_commit']==os.environ['SOURCE_HEAD_SHA']
+          assert m['publishable'] is False and m['remote_input_enabled'] is False and m['unattended_access'] is False
+          assert m['attended_approval_required'] is True and m['pairing_code_returned'] is False
+          assert m['signing_public_key_hex']==s['signing_public_key_hex']=='19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
+          print('PASS v5.1.13 verified build',digest,len(b))
+          PY
+      - name: Publish PRE-RELEASE transport, not signed or promoted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" --target "$SOURCE_HEAD_SHA" --prerelease \
+              --title 'Zhirox v5.1.13 Read-Only Private CSV Cloud Candidate' \
+              --notes 'Unsigned candidate only. Ed25519 signing and staging required; production Agent 5.1.12 unchanged. All legacy Admin/Cashier and SQL operations remain read-only.'
+          fi
+          gh release upload "$RELEASE_TAG" --repo "${{ github.repository }}" --clobber \
+            transport/ZhiroxAISupervisor.exe transport/ZhiroxAISupervisor.exe.sha256 \
+            transport/metadata.json transport/signing-request.json
+      - name: Verify exact release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir verify
+          gh release download "$RELEASE_TAG" --repo "${{ github.repository }}" --pattern ZhiroxAISupervisor.exe --dir verify
+          cmp transport/ZhiroxAISupervisor.exe verify/ZhiroxAISupervisor.exe
+          echo 'PASS immutable transport artifact'
