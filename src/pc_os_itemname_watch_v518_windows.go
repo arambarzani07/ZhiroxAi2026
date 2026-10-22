@@ -73,7 +73,7 @@ func pcOSItemNameQuery(ctx context.Context,db,q string)([]string,error){
  <-stderrDone
  if scanErr!=nil{return nil,scanErr}
  if tooMany{return nil,errors.New("ItemName row limit reached")}
- if waitErr!=nil{return nil,fmt.Errorf("SQL read-only query failed: %s",strings.TrimSpace(stderrOut.String()))}
+ if waitErr!=nil{return nil,pcOSItemNameSQLCmdDiagnostic(lines,stderrOut.String(),waitErr)}
  return lines,nil
 }
 func pcOSItemNameFindDB(ctx context.Context)(string,error){
