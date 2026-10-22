@@ -123,6 +123,15 @@ func pcOSItemNameReadBaseline()(pcOSItemNameState,error){
 func pcOSItemNameStoreBaseline(b pcOSItemNameState)error{
  return pcOSWriteAtomicJSON(pcOSItemNameBaselinePath(),b)
 }
+// Export is written only under Agent-owned ProgramData; no changes to old POS
+// files, SQL tables or Admin/Cashier processes are made.
+func pcOSItemNameRefreshCSV(rows []pcOSItemNameRow) error {
+  path:=filepath.Join(pcOSActiveRoot(),"exports",pcOSItemNameCSVName)
+  sha,updated,err:=pcOSItemNameEnsureLiveCSV(path,rows)
+  if err!=nil{return err}
+  pcOSItemNameStatusSet(map[string]interface{}{"csv_ready":true,"csv_path":path,"csv_sha256":sha,"csv_rows":len(rows),"csv_updated":updated})
+  return nil
+}
 func pcOSItemNameEvent(delta []pcOSItemNameChange, db,from,to string,offset int)error{
  creds,err:=pcOSLoadRelayCredentials();if err!=nil{return err}
  // Idempotency key is stable across retry after a lost server acknowledgement.
@@ -152,6 +161,7 @@ func pcOSItemNameWatchCycle()error{
  next:=pcOSItemNameState{Version:1,Database:db,CapturedUTC:time.Now().UTC().Format(time.RFC3339),Rows:now}
  if os.IsNotExist(err){
   if err=pcOSItemNameStoreBaseline(next);err!=nil{return err}
+  if err=pcOSItemNameRefreshCSV(now);err!=nil{return err}
   pcOSItemNameStatusSet(map[string]interface{}{"baseline_ready":true,"database":db,"item_count":len(now),"last_success_utc":next.CapturedUTC,"changes":0})
   return nil
  }
@@ -164,6 +174,7 @@ func pcOSItemNameWatchCycle()error{
   j:=i+25;if j>len(changes){j=len(changes)}
   if err=pcOSItemNameEvent(changes[i:j],db,b.CapturedUTC,next.CapturedUTC,i);err!=nil{return err}
  }
+ if err=pcOSItemNameRefreshCSV(now);err!=nil{return err}
  if err=pcOSItemNameStoreBaseline(next);err!=nil{return err}
  pcOSItemNameStatusSet(map[string]interface{}{"baseline_ready":true,"database":db,"item_count":len(now),"last_success_utc":next.CapturedUTC,"changes":len(changes)})
  return nil
