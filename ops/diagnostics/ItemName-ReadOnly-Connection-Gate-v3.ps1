@@ -1,6 +1,6 @@
 # Zhirox ItemName SQL server read-only gate; run only on authorized Windows Server.
 # Does not alter SQL schema/data, services, trust stores or app files.
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue' # Windows PowerShell 5.1: stderr must be captured, not thrown.
 $sqlcmd='C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\180\Tools\Binn\SQLCMD.EXE'
 if (-not (Test-Path -LiteralPath $sqlcmd -PathType Leaf)) {
   Write-Output 'BLOCKED: sqlcmd missing'; exit 2
@@ -19,9 +19,16 @@ foreach($q in $queries) {
   $code=$LASTEXITCODE
   if($code -ne 0) {
     Write-Output ("BLOCKED: {0} (exit={1})" -f $q.Name,$code)
-    @($out | ForEach-Object { [string]$_ } |
-      Where-Object { $_ -match '(?i)^\s*(sqlcmd:|msg\s+\d+|sqlstate|ssl provider:|error:)' } |
-      Select-Object -First 3) | ForEach-Object { Write-Output ("SQLCMD_ERROR=" + $_.Substring(0,[Math]::Min(300,$_.Length))) }
+    $message=(@($out | ForEach-Object { [string]$_ }) -join ' ').ToLowerInvariant()
+    $category='SQLCMD_ERROR_UNCLASSIFIED'
+    if($message -match 'target principal name|hostname in certificate|certificate name mismatch'){$category='SQL_TLS_CERT_NAME_MISMATCH'}
+    elseif($message -match 'certificate chain|certificate verify|self-signed'){$category='SQL_TLS_CERT_TRUST'}
+    elseif($message -match 'ssl provider|tls handshake|handshake failure|protocol version'){$category='SQL_TLS_HANDSHAKE'}
+    elseif($message -match 'login failed|18456'){$category='SQL_INTEGRATED_LOGIN_FAILED'}
+    elseif($message -match 'cannot open database|4060'){$category='SQL_DATABASE_ACCESS_DENIED'}
+    elseif($message -match 'network-related|server was not found|08001|connection timeout'){$category='SQL_CONNECTION_FAILED'}
+    elseif($message -match 'invalid column name|invalid object name|permission denied'){$category='SQL_SCHEMA_OR_PERMISSION_ERROR'}
+    Write-Output ("SQLCMD_ERROR_CATEGORY="+$category)
     Write-Output 'LEGACY_DB_CHANGED=NO'
     exit 3
   }
