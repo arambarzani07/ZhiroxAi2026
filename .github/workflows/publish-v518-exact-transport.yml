@@ -12,6 +12,7 @@ permissions:
 
 env:
   SOURCE_SHA: '0414d240564682205a9bd74d4e8a15e51e8557f4'
+  SOURCE_HEAD_SHA: 'f219e8ae8310702fc82e867598e871265f858441'
   SOURCE_RUN: '39780432345'
   ARTIFACT_NAME: 'Zhirox-PC-OS-v5.1.8-0414d240564682205a9bd74d4e8a15e51e8557f4'
   EXE_SHA256: '0d55a6485f892c6ad45902e3ebc12d9465b4b6406ba94aa6da39fe907975bae9'
@@ -29,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           gh run view "$SOURCE_RUN" --repo "${{ github.repository }}" --json conclusion,headSha \
-            --jq 'if .conclusion == "success" and .headSha == env.SOURCE_SHA then "pass" else error("wrong source run") end' | grep -qx pass
+            --jq 'if .conclusion == "success" and .headSha == env.SOURCE_HEAD_SHA then "pass" else error("wrong source run") end' | grep -qx pass
           mkdir transport
           gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name "$ARTIFACT_NAME" --dir transport
           test -f transport/ZhiroxAISupervisor.exe
@@ -53,7 +54,7 @@ jobs:
           set -euo pipefail
           if ! gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" \
-              --target "$SOURCE_SHA" --prerelease \
+              --target "$SOURCE_HEAD_SHA" --prerelease \
               --title "Zhirox PC OS v5.1.8 Windows Candidate (Not Installed)" \
               --notes "Validated Windows build artifact transport only. This is an unsigned candidate, NOT an auto-update, NOT approval to install on the protected PC. Production needs an Ed25519 manifest, verified binary and guarded update channel. Legacy SQL/Admin/Cashier remain read-only."
           fi
