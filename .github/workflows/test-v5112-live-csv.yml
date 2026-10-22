@@ -1,0 +1,43 @@
+name: Test v5.1.12 Safe Live ItemName CSV
+on:
+  push:
+    branches:
+      - feature/v5112-live-itemname-csv-20261022
+    paths:
+      - 'src/pc_os_itemname_csv_v5112.go'
+      - 'src/pc_os_itemname_csv_v5112_test.go'
+      - 'src/pc_os_itemname_policy_v518.go'
+      - 'src/pc_os_itemname_watch_v518_windows.go'
+      - '.github/workflows/test-v5112-live-csv.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-csv-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Isolated CSV unit tests
+        run: |
+          go test -v src/pc_os_itemname_policy_v518.go src/pc_os_itemname_csv_v5112.go src/pc_os_itemname_csv_v5112_test.go
+          go vet src/pc_os_itemname_policy_v518.go src/pc_os_itemname_csv_v5112.go src/pc_os_itemname_csv_v5112_test.go
+      - name: Enforce protected SQL and POS read-only
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          csv=Path('src/pc_os_itemname_csv_v5112.go').read_text()
+          watch=Path('src/pc_os_itemname_watch_v518_windows.go').read_text()
+          assert 'pcOSItemNameRefreshCSV(now)' in watch
+          assert watch.count('pcOSItemNameRefreshCSV(now)') == 2
+          assert 'pcOSItemNameEnsureLiveCSV' in csv
+          assert 'os.Rename' in csv
+          forbidden=['BACKUP DATABASE','RESTORE DATABASE','UPDATE dbo','DELETE FROM','INSERT INTO','ALTER DATABASE','powershell.exe','cmd.exe']
+          for tok in forbidden: assert tok not in csv, f'unsafe CSV operation: {tok}'
+          assert '"exports"' in watch
+          assert '"SuperMarket_ItemName_latest.csv"' in csv
+          PY
