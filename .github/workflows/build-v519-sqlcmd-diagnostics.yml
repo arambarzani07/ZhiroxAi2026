@@ -183,8 +183,8 @@ jobs:
           $canary = Get-Content 'buildsrc\pc_os_remote_canary_v517_windows.go' -Raw
           $bootstrap = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\bootstrap_windows.go' -Raw
           $input = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
-          if ($main -notmatch '5\.1\.8') { throw 'runtime version 5.1.9 missing' }
-          if ($pc -notmatch 'const pcOSVersion = "5\.1\.8"') { throw 'pcOSVersion 5.1.9 missing' }
+          if ($main -notmatch '5\.1\.9') { throw 'runtime version 5.1.9 missing' }
+          if ($pc -notmatch 'const pcOSVersion = "5\.1\.9"') { throw 'pcOSVersion 5.1.9 missing' }
           if ($main -notmatch 'pc_os_itemname_probe' -or $main -notmatch 'pc_os_itemname_status') { throw 'ItemName routes missing' }
           if ($main -notmatch 'pcOSItemNameWatchLoop') { throw 'ItemName background loop missing' }
           if ($pc -notmatch 'itemname_price_watch_read_only') { throw 'read-only monitor module marker missing' }
