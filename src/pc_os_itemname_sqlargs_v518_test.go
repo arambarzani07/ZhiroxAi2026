@@ -10,7 +10,7 @@ func TestItemNameSQLCmdTLSRequiresCertificateValidation(t *testing.T) {
     args, err := pcOSItemNameSQLCmdArgs("SuperMarket", pcOSItemNameTopOneSQL, "Server")
     if err != nil { t.Fatal(err) }
     want := []string{"-S", "lpc:Server", "-E", "-No", "-d", "SuperMarket",
-        "-b", "-h", "-1", "-w", "8192", "-y", "8192",
+        "-b", "-h", "-1", "-w", "8192", "-y", "4096",
         "-l", "10", "-t", "90", "-r", "1", "-Q", pcOSItemNameTopOneSQL}
     if !reflect.DeepEqual(args, want) { t.Fatalf("wrong fixed sqlcmd args: %q", args) }
     for _, token := range args {
