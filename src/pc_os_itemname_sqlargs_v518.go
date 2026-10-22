@@ -40,7 +40,7 @@ func pcOSItemNameSQLCmdArgs(database, query, certificateHost string) ([]string, 
     // normal trust-chain validation remains enabled. -F specifies the name to
     // check in the certificate; an unknown/mismatched certificate must fail.
     return []string{
-        "-S", "localhost", "-E", "-N", "-F", certificateHost, "-d", "SuperMarket",
+        "-S", "tcp:127.0.0.1,1433", "-E", "-N", "-F", certificateHost, "-d", "SuperMarket",
         "-b", "-h", "-1", "-w", "8192", "-y", "8192",
         "-l", "10", "-t", "90", "-r", "1", "-Q", query,
     }, nil
