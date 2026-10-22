@@ -1,0 +1,74 @@
+name: Publish Exact v5.1.8 Windows Candidate Transport
+on:
+  push:
+    branches:
+      - fix/v518-itemname-decimal-price-20261022
+    paths:
+      - '.github/workflows/publish-v518-exact-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_SHA: '0414d240564682205a9bd74d4e8a15e51e8557f4'
+  SOURCE_RUN: '39780432345'
+  ARTIFACT_NAME: 'Zhirox-PC-OS-v5.1.8-0414d240564682205a9bd74d4e8a15e51e8557f4'
+  EXE_SHA256: '0d55a6485f892c6ad45902e3ebc12d9465b4b6406ba94aa6da39fe907975bae9'
+  EXE_SIZE: '19963904'
+  RELEASE_TAG: 'v5.1.8-candidate-0414d240'
+
+jobs:
+  publish-candidate:
+    if: github.repository == 'arambarzani07/ZhiroxAi2026'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch precisely pinned successful Windows build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run view "$SOURCE_RUN" --repo "${{ github.repository }}" --json conclusion,headSha \
+            --jq 'if .conclusion == "success" and .headSha == env.SOURCE_SHA then "pass" else error("wrong source run") end' | grep -qx pass
+          mkdir transport
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name "$ARTIFACT_NAME" --dir transport
+          test -f transport/ZhiroxAISupervisor.exe
+          test "$(sha256sum transport/ZhiroxAISupervisor.exe | awk '{print $1}')" = "$EXE_SHA256"
+          test "$(stat -c %s transport/ZhiroxAISupervisor.exe)" = "$EXE_SIZE"
+          python3 - <<'PY'
+          import json
+          with open('transport/metadata.json', encoding='utf-8') as f: x=json.load(f)
+          assert x['version']=='5.1.8'
+          assert x['source_commit']=='0414d240564682205a9bd74d4e8a15e51e8557f4'
+          assert x['sha256']=='0d55a6485f892c6ad45902e3ebc12d9465b4b6406ba94aa6da39fe907975bae9'
+          assert x['size']==19963904
+          assert x['publishable'] is False
+          assert x['remote_input_enabled'] is False and x['unattended_access'] is False
+          assert x['attended_approval_required'] is True
+          PY
+      - name: Publish isolated PRE-RELEASE transport only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" \
+              --target "$SOURCE_SHA" --prerelease \
+              --title "Zhirox PC OS v5.1.8 Windows Candidate (Not Installed)" \
+              --notes "Validated Windows build artifact transport only. This is an unsigned candidate, NOT an auto-update, NOT approval to install on the protected PC. Production needs an Ed25519 manifest, verified binary and guarded update channel. Legacy SQL/Admin/Cashier remain read-only."
+          fi
+          gh release upload "$RELEASE_TAG" --repo "${{ github.repository }}" --clobber \
+            transport/ZhiroxAISupervisor.exe \
+            transport/ZhiroxAISupervisor.exe.sha256 \
+            transport/metadata.json \
+            transport/signing-request.json
+      - name: Verify exact released asset size and SHA from HTTP download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p verify
+          gh release download "$RELEASE_TAG" --repo "${{ github.repository }}" --pattern 'ZhiroxAISupervisor.exe' --dir verify
+          test "$(sha256sum verify/ZhiroxAISupervisor.exe | awk '{print $1}')" = "$EXE_SHA256"
+          test "$(stat -c %s verify/ZhiroxAISupervisor.exe)" = "$EXE_SIZE"
+          echo 'PASS: GitHub v5.1.8 prerelease exact binary readback'
