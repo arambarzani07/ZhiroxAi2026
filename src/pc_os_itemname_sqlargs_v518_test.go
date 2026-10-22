@@ -9,12 +9,12 @@ import (
 func TestItemNameSQLCmdTLSRequiresCertificateValidation(t *testing.T) {
     args, err := pcOSItemNameSQLCmdArgs("SuperMarket", pcOSItemNameTopOneSQL, "Server")
     if err != nil { t.Fatal(err) }
-    want := []string{"-S", "tcp:127.0.0.1,1433", "-E", "-N", "-F", "Server", "-d", "SuperMarket",
+    want := []string{"-S", "lpc:Server", "-E", "-No", "-d", "SuperMarket",
         "-b", "-h", "-1", "-w", "8192", "-y", "8192",
         "-l", "10", "-t", "90", "-r", "1", "-Q", pcOSItemNameTopOneSQL}
     if !reflect.DeepEqual(args, want) { t.Fatalf("wrong fixed sqlcmd args: %q", args) }
     for _, token := range args {
-        if token == "-C" || token == "-No" || token == "-U" || token == "-P" {
+        if token == "-C" || token == "-N" || token == "-F" || token == "-U" || token == "-P" {
             t.Fatalf("insecure sqlcmd flag %s", token)
         }
     }
@@ -33,8 +33,11 @@ func TestItemNameSQLCmdRejectsUntrustedCertificateHosts(t *testing.T) {
             t.Fatalf("accepted invalid certificate host %q", h)
         }
     }
-    if _, err := pcOSItemNameSQLCmdArgs("SuperMarket", pcOSItemNameTopOneSQL, "Server.office.local"); err != nil {
-        t.Fatalf("rejected valid FQDN: %v", err)
+    if _, err := pcOSItemNameSQLCmdArgs("SuperMarket", pcOSItemNameTopOneSQL, "SERVER"); err != nil {
+        t.Fatalf("rejected actual local host: %v", err)
+    }
+    if _, err := pcOSItemNameSQLCmdArgs("SuperMarket", pcOSItemNameTopOneSQL, "Server.office.local"); err == nil {
+        t.Fatal("accepted non-local host")
     }
 }
 
@@ -44,5 +47,19 @@ func TestItemNameSQLCmdAllowsOnlyFixedReadQueries(t *testing.T) {
  }
  for _, q := range []string{"SELECT 1","SELECT * FROM dbo.ItemName","SELECT @@VERSION","SET NOCOUNT ON; DELETE FROM dbo.ItemName;","SET NOCOUNT ON; SELECT 1; DROP TABLE dbo.ItemName;",""} {
   if _,err:=pcOSItemNameSQLCmdArgs("SuperMarket",q,"Server");err==nil{t.Fatalf("arbitrary SQL allowed: %q",q)}
+ }
+}
+
+func TestItemNameSharedMemoryOnly(t *testing.T) {
+ args,err:=pcOSItemNameSQLCmdArgs("SuperMarket",pcOSItemNameSchemaProbeSQL,"Server")
+ if err!=nil { t.Fatal(err) }
+ if !strings.Contains(pcOSItemNameSchemaProbeSQL,"CONNECTIONPROPERTY('net_transport')") { t.Fatal("server-side local transport verification missing") }
+ if !strings.Contains(pcOSItemNameSchemaProbeSQL,"Shared memory") { t.Fatal("shared memory transport not enforced") }
+ for i,a:=range args {
+  if a=="-S" && (i+1>=len(args)||args[i+1]!="lpc:Server") { t.Fatal("remote target accepted") }
+  if a=="-No" && (len(args)<2 || args[1]!="lpc:Server") { t.Fatal("optional encryption outside local shared memory") }
+ }
+ for _,forbidden:=range []string{"tcp:","np:","-C","-P","-U","-N","-F"}{
+  if strings.Contains(strings.Join(args," "),forbidden){t.Fatalf("forbidden remote auth/transport flag %q",forbidden)}
  }
 }
