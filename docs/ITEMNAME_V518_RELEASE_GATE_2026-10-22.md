@@ -75,3 +75,16 @@
 5. Only after the above gates and owner authorization: signed build, hash verification, staging canary and release promotion. Until then, v5.1.8 must remain `staged`/`publishable=false`.
 
 **No protected PC application, SQL schema, SQL settings, or production Supabase function was modified.**
+
+## 2026-10-22 — requested live SELECT + real notification delivery checks
+
+**Current result: NOT COMPLETED; fail-closed.**
+
+1. The production PC agent was online (v5.1.7; health 100) when checked. A fresh queued **read-only** `pc_os_backup_readiness` command targeting `Server` was delivered and completed, but its `database_probe_ok=false` and `sqlcmd failed: exit status 1`. This action queries `sys.databases`, NOT `dbo.ItemName`. It is **not evidence** of a successful ItemName SELECT. The live agent version does not yet include the unpromoted v5.1.8 `pc_os_itemname_probe` handler.
+2. The protected legacy SQL ERRORLOG was read again, confirming the expected SQL Server 2008 R2 certificate loaded at startup; no reliable SQLCMD failure reason was captured from its existing v5.1.7 error reporting. No SQL setting change or certificate bypass was permitted.
+3. Added isolated `pcOSItemNameSQLCmdDiagnostic` to the feature branch. It reports only SQLCMD error-prefixed lines, caps output and hides item names, barcodes and arbitrary row data. Four isolated tests passed locally, but the candidate is **not installed on the PC**.
+4. The production relay currently has an authenticated `POST /api/agent/:id/pc-os/event` ingestion handler, but there is **no owner delivery channel configured** in this project and no completed end-to-end test. Production `pc_os_events` contained 0 rows at the initial verification. HTTP delivery cannot be asserted from database reads.
+5. An isolated synthetic test-agent record was temporarily created in Supabase for a relay ingress verification attempt, but the outbound test request was blocked by the available execution policy; **no HTTP 202 or event arrival was observed**. The exact test-only agent was then deleted. No live agent identity or customer records were altered.
+6. The user-facing fallback `Zhirox-ItemName-ReadOnly-Diagnostic.ps1` was prepared separately as a local diagnostic asset (not installed/deployed). It executes fixed SQLCMD SELECT-only checks using Windows integrated authentication and TLS certificate-name verification without `-C`. Execution and output on the authorized PC are still needed for proof.
+
+**Do not mark live ItemName SELECT or owner notification delivery as complete.** The remaining gates are: validated live SQL connection and SELECT, staging event ingress + deduplication, real destination configuration, and a recipient-confirmed notification test. Leave v5.1.8 STAGED and the protected supermarket systems unchanged.
