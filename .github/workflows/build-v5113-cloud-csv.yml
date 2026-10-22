@@ -288,7 +288,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $metadata = Get-Content 'channel-v5113\metadata.json' -Raw | ConvertFrom-Json
           if ($metadata.publishable -ne $false) { throw 'candidate must remain blocked/non-publishable' }
-          if ($metadata.version -ne '5.1.12' -or $metadata.publishable -ne $false) { throw 'v5.1.13 candidate must remain blocked' }
+          if ($metadata.version -ne '5.1.13' -or $metadata.publishable -ne $false) { throw 'v5.1.13 candidate must remain blocked' }
           if ($metadata.remote_input_enabled -ne $false -or $metadata.unattended_access -ne $false) { throw 'remote input/unattended must remain disabled' }
           if ($metadata.attended_approval_required -ne $true -or $metadata.pairing_code_returned -ne $false) { throw 'attended/pairing privacy invariant failed' }
           $actual = (Get-FileHash -Algorithm SHA256 'channel-v5113\ZhiroxAISupervisor.exe').Hash.ToLowerInvariant()
