@@ -140,3 +140,14 @@ Read-only checks on the active PC relay observed:
 Release remains blocked on: (1) authorized validated-TLS successful live `ItemName` SELECT with an appropriate SQL principal; (2) deliberate safe agent update under owner approval without modification of old SQL/POS; (3) real `itemname_delta` -> relay -> notification handoff with verified iPhone receipt.
 
 **Do not mark production READY or update the legacy SQL Server under read-only lock.**
+
+## 2026-10-22 15:06 Baghdad — Real local SQLCMD failure isolated
+A live v5.1.7 agent read-only `pc_os_backup_readiness` probe for `localhost` completed with `database_probe_ok=false` and the exact ODBC Driver 18 failure:
+```text
+SSL Provider: The target principal name is incorrect.
+Client unable to establish connection.
+```
+A second read-only probe with host name `Server` also returned `database_probe_ok=false` (generic exit status 1; detailed diagnostic unavailable). **Neither probe read any ItemName rows.**
+The candidate v5.1.8 `pcOSItemNameSQLCmdArgs` now pins TCP transport to `tcp:127.0.0.1,1433` and specifies the machine certificate host with `-F`; `-N` requires TLS and `-C` is absent. Microsoft's SQLCMD documentation confirms `-F` supplies the certificate CN/SAN verification hostname; this is an unproven candidate fix, not proof of handshake success.
+The SQL Server engine logged as v10.50.1600.1 (SQL Server 2008 R2 RTM); KB3135244 documents TLS 1.2 as available in x86/x64 SQL Server 2008 R2 SP3 build 10.50.6542.0 and later. This remains a potentially separate blocker.
+**Release gate remains BLOCKED, do not promote v5.1.8 or modify legacy SQL server/certificate settings.**
