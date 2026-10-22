@@ -204,9 +204,9 @@ jobs:
           if ($comp -notmatch 'lpc:Server' -or $comp -notmatch 'SET NOCOUNT ON' -or $comp -notmatch 'SQLCMD_TIMEOUT') { throw 'Fixed protected SQL diagnostic invariant missing' }
           if ($comp -match 'os.Exec|powershell\.exe|(?<!sql)cmd\.exe|BACKUP DATABASE|UPDATE dbo|DELETE FROM|INSERT INTO|RESTORE DATABASE|ALTER DATABASE|TrustServerCertificate|"-C"') { throw 'Forbidden SQL diagnostic operation' }
           if ($main -notmatch 'pcOSItemNameWatchLoop') { throw 'ItemName background loop missing' }
+          $watch = Get-Content 'buildsrc/pc_os_itemname_watch_v518_windows.go' -Raw
           if ($watch -notmatch 'pcOSItemNameRefreshCSV') { throw 'Permanent CSV hook missing' }
           if ($pc -notmatch 'itemname_price_watch_read_only') { throw 'read-only monitor module marker missing' }
-          $watch = Get-Content 'buildsrc/pc_os_itemname_watch_v518_windows.go' -Raw
           if ($watch -match 'powershell.exe|cmd.exe|BACKUP DATABASE|UPDATE dbo|DELETE FROM|INSERT INTO|RESTORE DATABASE|ALTER DATABASE') { throw 'ItemName monitor contains forbidden mutation or shell' }
           $csv = Get-Content 'buildsrc/pc_os_itemname_csv_v5112.go' -Raw
           if ($csv -notmatch 'SuperMarket_ItemName_latest.csv' -or $csv -notmatch 'os.Rename') { throw 'CSV atomic writer not embedded' }
