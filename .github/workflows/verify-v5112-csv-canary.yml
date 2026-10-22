@@ -1,0 +1,43 @@
+name: Verify Signed v5.1.12 CSV Canary
+on:
+  push:
+    branches:
+      - feature/v5112-live-itemname-csv-20261022
+    paths:
+      - '.github/workflows/verify-v5112-csv-canary.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify signed exact executable and staged-only release from Supabase canary
+        run: |
+          set -euo pipefail
+          base='https://vllwundrtrgdqmkqbduy.supabase.co/functions/v1/zhirox-pc-update-v5112-csv-canary'
+          curl --fail-with-body --silent --show-error --retry 2 --max-time 100 "$base/health" -o /tmp/health.json
+          python3 - <<'PY'
+          import json
+          h=json.load(open('/tmp/health.json',encoding='utf-8'))
+          assert h.get('ok') is True, h
+          assert h.get('service')=='zhirox-pc-update-v5112-csv-canary',h
+          assert h.get('version')=='5.1.12',h
+          assert h.get('sha256')=='a7f64c11e03fc4ed385e41331f224700c40a19df4472df8597b2d0b1457cfb11',h
+          assert h.get('size')==19992576,h
+          assert h.get('signature')=='ed25519_verified',h
+          assert h.get('release_status')=='staged',h
+          assert h.get('publishable') is False,h
+          assert h.get('remote_input') is False,h
+          assert h.get('unattended_access') is False,h
+          print('PASS: 20 MB executable SHA256 + Ed25519 verified; v5.1.12 remains STAGED')
+          PY
+      - name: Deny unauthenticated update downloads
+        run: |
+          set -euo pipefail
+          base='https://vllwundrtrgdqmkqbduy.supabase.co/functions/v1/zhirox-pc-update-v5112-csv-canary'
+          code=$(curl --silent --show-error --output /tmp/manifest.json --write-out '%{http_code}' --max-time 25 "$base/api/update/manifest")
+          test "$code" = 401
+          code=$(curl --silent --show-error --output /tmp/binary.json --write-out '%{http_code}' --max-time 25 "$base/api/update/binary")
+          test "$code" = 401
+          echo 'PASS: protected update endpoints reject unauthenticated requests'
