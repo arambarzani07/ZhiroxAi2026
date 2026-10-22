@@ -1,0 +1,42 @@
+name: Verify Signed v5.1.8 Update Transport Canary
+
+on:
+  push:
+    branches:
+      - fix/v518-itemname-decimal-price-20261022
+    paths:
+      - '.github/workflows/verify-v518-update-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact published executable and Ed25519 signature through canary health
+        run: |
+          set -euo pipefail
+          url='https://vllwundrtrgdqmkqbduy.supabase.co/functions/v1/zhirox-pc-update-v518-canary/health'
+          curl --fail-with-body --silent --show-error --retry 2 --max-time 90 "$url" -o /tmp/health.json
+          python3 - <<'PY'
+          import json
+          h=json.load(open('/tmp/health.json'))
+          assert h.get('ok') is True, h
+          assert h.get('service')=='zhirox-pc-update-v518-canary', h
+          assert h.get('version')=='5.1.8', h
+          assert h.get('sha256')=='0d55a6485f892c6ad45902e3ebc12d9465b4b6406ba94aa6da39fe907975bae9',h
+          assert h.get('size')==19963904,h
+          assert h.get('signature')=='ed25519_verified',h
+          assert h.get('release_status')=='staged',h
+          assert h.get('publishable') is False,h
+          assert h.get('remote_input') is False and h.get('unattended_access') is False,h
+          print('PASS: full executable downloaded and verified in protected canary')
+          PY
+      - name: Reject unsigned or unauthenticated manifest access
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/unauth.json -w '%{http_code}' --max-time 25 'https://vllwundrtrgdqmkqbduy.supabase.co/functions/v1/zhirox-pc-update-v518-canary/api/update/manifest')
+          test "$code" = 401
+          echo 'PASS: unauthenticated manifest rejected'
