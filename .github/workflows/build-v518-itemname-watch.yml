@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/v518-itemname-price-watch
+      - fix/v518-itemname-decimal-price-20261022
     paths:
       - '.github/workflows/build-v517-remote-screen-canary.yml'
       - 'src/pc_os_remote_canary_v517_windows.go'
@@ -16,6 +17,10 @@ on:
       - 'src/pc_os_itemname_policy_v518.go'
       - 'src/pc_os_itemname_policy_v518_test.go'
       - 'src/pc_os_itemname_watch_v518_windows.go'
+      - 'src/pc_os_itemname_sqlargs_v518.go'
+      - 'src/pc_os_itemname_sql_diagnostics_v518.go'
+      - 'src/pc_os_itemname_sqlargs_v518_test.go'
+      - 'src/pc_os_itemname_sql_diagnostics_v518_test.go'
       - 'tools/patch_v518_itemname.py'
       - '.github/workflows/build-v518-itemname-watch.yml'
       - 'tools/render_remote_canary_assets_v517.py'
@@ -56,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          go test -v src/pc_os_itemname_policy_v518.go src/pc_os_itemname_policy_v518_test.go
+          go test -v src/pc_os_itemname_policy_v518.go src/pc_os_itemname_policy_v518_test.go src/pc_os_itemname_sqlargs_v518.go src/pc_os_itemname_sqlargs_v518_test.go src/pc_os_itemname_sql_diagnostics_v518.go src/pc_os_itemname_sql_diagnostics_v518_test.go
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build and probe native H264 encoder
@@ -160,6 +165,8 @@ jobs:
           python tools/patch_v517_remote_canary.py
           Copy-Item 'src/pc_os_itemname_policy_v518.go' 'buildsrc/pc_os_itemname_policy_v518.go'
           Copy-Item 'src/pc_os_itemname_watch_v518_windows.go' 'buildsrc/pc_os_itemname_watch_v518_windows.go'
+          Copy-Item 'src/pc_os_itemname_sqlargs_v518.go' 'buildsrc/pc_os_itemname_sqlargs_v518.go'
+          Copy-Item 'src/pc_os_itemname_sql_diagnostics_v518.go' 'buildsrc/pc_os_itemname_sql_diagnostics_v518.go'
           python tools/patch_v518_itemname.py
           $next = (Get-Content 'release-gates\v5.1.1-next-public-key.hex' -Raw).Trim().ToLowerInvariant()
           if ($next -ne '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143') { throw 'pinned update key mismatch' }
@@ -207,7 +214,7 @@ jobs:
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path '..\channel-v518' | Out-Null
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ..\channel-v518\ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go pc_os_screen_observability.go pc_os_screen_observability_windows.go pc_os_remote_agent_launcher_v1_windows.go pc_os_remote_canary_v517_windows.go pc_os_remote_canary_assets_v517_windows.go pc_os_itemname_policy_v518.go pc_os_itemname_watch_v518_windows.go update_trust_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ..\channel-v518\ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go pc_os_screen_observability.go pc_os_screen_observability_windows.go pc_os_remote_agent_launcher_v1_windows.go pc_os_remote_canary_v517_windows.go pc_os_remote_canary_assets_v517_windows.go pc_os_itemname_policy_v518.go pc_os_itemname_sqlargs_v518.go pc_os_itemname_sql_diagnostics_v518.go pc_os_itemname_watch_v518_windows.go update_trust_v510.go
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Create immutable unsigned signing request
