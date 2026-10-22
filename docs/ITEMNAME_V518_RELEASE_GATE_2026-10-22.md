@@ -122,3 +122,21 @@ Registry checks also verified ODBC Driver 17, ODBC Driver 18 and SQL Server Nati
 An independent Windows-local PowerShell diagnostic can attempt `tcp:Server,1433` then `lpc:Server`, both using mandatory encryption and real certificate validation, and explicitly stops without a plaintext fallback. It is a **manual diagnostic only**; do not represent preparing it as running it on the PC.
 
 Strict original SQL Server/Admin.exe/Cashier.exe READ-ONLY LOCK remains in effect.
+
+## 2026-10-22 12:40 Baghdad — Verification addendum (STAGED ONLY)
+
+Read-only checks on the active PC relay observed:
+- Agent `Server-c24b5c0f` v5.1.7 heartbeat fresh (~19 seconds) and self-reported health 100/100.
+- `pc_os_events` contained **0** genuine `itemname_delta` records from that agent.
+- v5.1.8 remains `staged`, `publishable=false`; **not installed or promoted**.
+- An attempted read-only `registry_get` of `SCHANNEL\\Protocols\\TLS 1.2\\Server` for `Enabled` and `DisabledByDefault` found no explicit registry path. Absence is not proof TLS 1.2 is disabled: Windows defaults matter.
+- SQL ERRORLOG previously identified SQL Server 2008 R2 RTM version 10.50.1600.1; Microsoft's [KB3135244](https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server) lists 10.50.6542.0 as the initial x86/x64 SQL Server 2008 R2 SP3 build with TLS 1.2 support. A modern TLS 1.2 connection cannot be assumed. No legacy engine updates or weaker TLS fallbacks are authorized under the lock.
+- Read-only SQLCMD probe in the older v5.1.7 backup module previously returned exit status 1. This is a failure, not proof that `dbo.ItemName` was read.
+- Privacy hardening of the v5.1.8 SQL diagnostics now **discards SQLCMD stdout** and returns fixed diagnostic categories from stderr only (TLS name/trust/handshake, integrated login, DB access, network, schema). Five corresponding isolated Go tests passed in a reproduction of the candidate logic in the analyst container. This is **not** a full Windows integration or live DB success.
+- The GitHub `ops/diagnostics/ItemName-ReadOnly-Connection-Gate-v3.ps1` probe was hardened for Windows PowerShell 5.1 stderr capture and categorized error reports, remaining read-only.
+- One-time ChatGPT push diagnostic task completed at 2026-10-22 09:31:27Z, but `notifications_enabled=false` and delivery to iPhone was not observed; no success claim.
+- A separate conversation artifact `Zhirox-ItemName-Live-SELECT-ReadOnly-v4.ps1` carries three hardcoded SQL `SELECT` statements and categorical-only SQLCMD diagnostics. It has been statically inspected, **not executed on the PC**.
+
+Release remains blocked on: (1) authorized validated-TLS successful live `ItemName` SELECT with an appropriate SQL principal; (2) deliberate safe agent update under owner approval without modification of old SQL/POS; (3) real `itemname_delta` -> relay -> notification handoff with verified iPhone receipt.
+
+**Do not mark production READY or update the legacy SQL Server under read-only lock.**
