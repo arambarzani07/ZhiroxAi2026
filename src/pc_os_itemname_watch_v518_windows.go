@@ -79,7 +79,7 @@ func pcOSItemNameQuery(ctx context.Context,db,q string)([]string,error){
 func pcOSItemNameFindDB(ctx context.Context)(string,error){
  // The authorized database is fixed. Never scan unrelated business databases.
  const db="SuperMarket"
- rows,err:=pcOSItemNameQuery(ctx,db,"SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID(N'dbo.ItemName',N'U') IS NOT NULL THEN '1' ELSE '0' END;")
+ rows,err:=pcOSItemNameQuery(ctx,db,pcOSItemNameSchemaProbeSQL)
  if err!=nil{return "",err}
  if len(rows)!=1||rows[0]!="1"{return "",errors.New("SuperMarket.dbo.ItemName not accessible")}
  return db,nil
@@ -91,7 +91,6 @@ func pcOSItemNameDecodeHex(v string)(string,error){
  for i:=range xs{xs[i]=uint16(b[2*i])|uint16(b[2*i+1])<<8}
  return string(utf16.Decode(xs)),nil
 }
-const pcOSItemNameSelect = "SET NOCOUNT ON; SET LOCK_TIMEOUT 3000; SELECT CONVERT(VARCHAR(40),ItemNameID) + '|' + COALESCE(CONVERT(VARCHAR(MAX),CONVERT(VARBINARY(MAX),CONVERT(NVARCHAR(512),ItemName)),2),'') + '|' + COALESCE(CONVERT(VARCHAR(MAX),CONVERT(VARBINARY(MAX),CONVERT(NVARCHAR(128),ItemCode)),2),'') + '|' + COALESCE(CONVERT(VARCHAR(64),SalePrice),'') + '|' + COALESCE(CONVERT(VARCHAR(64),WholeSalePrice),'') FROM dbo.ItemName ORDER BY ItemNameID;"
 func pcOSItemNameFetch(ctx context.Context,db string)([]pcOSItemNameRow,error){
  lines,err:=pcOSItemNameQuery(ctx,db,pcOSItemNameSelect);if err!=nil{return nil,err}
  rows:=make([]pcOSItemNameRow,0,len(lines))
@@ -173,7 +172,7 @@ func pcOSItemNameProbe()(interface{},error){
  ctx,cancel:=context.WithTimeout(context.Background(),50*time.Second);defer cancel()
  db,err:=pcOSItemNameFindDB(ctx)
  if err!=nil{return map[string]interface{}{"probe_ok":false,"error":err.Error(),"read_only":true},nil}
- lines,err:=pcOSItemNameQuery(ctx,db,"SET NOCOUNT ON; SELECT TOP(1) CONVERT(VARCHAR(40),ItemNameID) FROM dbo.ItemName ORDER BY ItemNameID;")
+ lines,err:=pcOSItemNameQuery(ctx,db,pcOSItemNameTopOneSQL)
  if err!=nil{return map[string]interface{}{"probe_ok":false,"database":db,"error":err.Error(),"read_only":true},nil}
  return map[string]interface{}{"probe_ok":len(lines)==1,"database":db,"read_only":true,"zero_ui":true},nil
 }
