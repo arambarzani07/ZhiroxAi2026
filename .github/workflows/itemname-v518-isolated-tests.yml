@@ -29,7 +29,9 @@ jobs:
             src/pc_os_itemname_policy_v518.go \
             src/pc_os_itemname_policy_v518_test.go \
             src/pc_os_itemname_sqlargs_v518.go \
-            src/pc_os_itemname_sqlargs_v518_test.go
+            src/pc_os_itemname_sqlargs_v518_test.go \
+            src/pc_os_itemname_sql_diagnostics_v518.go \
+            src/pc_os_itemname_sql_diagnostics_v518_test.go
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
