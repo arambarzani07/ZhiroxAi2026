@@ -37,3 +37,7 @@ jobs:
           node-version: '22'
       - name: Run relay idempotency guard tests
         run: node supabase/pc-relay-candidates/itemname-event-guard.test.mjs
+      - name: Verify Windows PowerShell ItemName probe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ops/diagnostics/Test-ItemNameProbeStatic.ps1
