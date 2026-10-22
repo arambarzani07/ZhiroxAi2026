@@ -9,7 +9,7 @@ import (
 func TestItemNameSQLCmdTLSRequiresCertificateValidation(t *testing.T) {
     args, err := pcOSItemNameSQLCmdArgs("SuperMarket", pcOSItemNameTopOneSQL, "Server")
     if err != nil { t.Fatal(err) }
-    want := []string{"-S", "localhost", "-E", "-N", "-F", "Server", "-d", "SuperMarket",
+    want := []string{"-S", "tcp:127.0.0.1,1433", "-E", "-N", "-F", "Server", "-d", "SuperMarket",
         "-b", "-h", "-1", "-w", "8192", "-y", "8192",
         "-l", "10", "-t", "90", "-r", "1", "-Q", pcOSItemNameTopOneSQL}
     if !reflect.DeepEqual(args, want) { t.Fatalf("wrong fixed sqlcmd args: %q", args) }
