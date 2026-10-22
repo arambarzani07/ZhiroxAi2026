@@ -112,3 +112,13 @@ The connected ChatGPT hourly condition-watch was activated to report genuine `it
 2. Verify agent's actual `SuperMarket.dbo.ItemName` schema, count and first row using only `SELECT`.
 3. Deploy and test relay uniqueness/idempotency only after staging; then verify actual owner-visible notifications end-to-end. Supabase `pc_os_events` currently empty.
 4. Keep v5.1.8 staged, release gate closed and the original SQL Server/Admin/Cashier read-only.
+
+### 07:37Z protocol-prefix policy probe (read-only)
+
+Agent 5.1.7 accepted the transport readiness action `pc_os_backup_readiness` with `server="lpc:Server"` but correctly **rejected the target** at its server allowlist validation: `server_policy_ok=false`, `server_policy_error="SQL backup target must be a local host or local named instance"`. **No SQL query ran**. Do not loosen the production allowlist as an undocumented workaround.
+
+Registry checks also verified ODBC Driver 17, ODBC Driver 18 and SQL Server Native Client 10.0 all report Installed. The first verified live `ItemName` SELECT and mobile push delivery remain unproven. An hourly ChatGPT condition-watch for non-test ItemName events has been set up; it cannot produce events that the still-running 5.1.7 agent does not emit.
+
+An independent Windows-local PowerShell diagnostic can attempt `tcp:Server,1433` then `lpc:Server`, both using mandatory encryption and real certificate validation, and explicitly stops without a plaintext fallback. It is a **manual diagnostic only**; do not represent preparing it as running it on the PC.
+
+Strict original SQL Server/Admin.exe/Cashier.exe READ-ONLY LOCK remains in effect.
