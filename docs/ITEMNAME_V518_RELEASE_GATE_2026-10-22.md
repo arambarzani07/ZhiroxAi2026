@@ -151,3 +151,26 @@ A second read-only probe with host name `Server` also returned `database_probe_o
 The candidate v5.1.8 `pcOSItemNameSQLCmdArgs` now pins TCP transport to `tcp:127.0.0.1,1433` and specifies the machine certificate host with `-F`; `-N` requires TLS and `-C` is absent. Microsoft's SQLCMD documentation confirms `-F` supplies the certificate CN/SAN verification hostname; this is an unproven candidate fix, not proof of handshake success.
 The SQL Server engine logged as v10.50.1600.1 (SQL Server 2008 R2 RTM); KB3135244 documents TLS 1.2 as available in x86/x64 SQL Server 2008 R2 SP3 build 10.50.6542.0 and later. This remains a potentially separate blocker.
 **Release gate remains BLOCKED, do not promote v5.1.8 or modify legacy SQL server/certificate settings.**
+
+## 2026-10-22 15:33 Baghdad — Local-only LPC candidate and build correction
+
+### Completed, isolated branch only
+- Switched v5.1.8 `pcOSItemNameSQLCmdArgs` to fixed `-S lpc:Server -E -No`: no TCP, named pipes or remote fallback. `-No` (optional encryption) is confined to Windows local Shared Memory; DO NOT use this setting for network SQL sessions. Never introduce `-C` or SQL passwords.
+- The schema probe now accepts `dbo.ItemName` ONLY when `CONNECTIONPROPERTY('net_transport') = 'Shared memory'`; if the client tries another transport, the schema gate fails closed.
+- Added isolated tests that assert LPC-only args and reject other server hosts and arbitrary SQL.
+- Fixed the Windows Build workflow to copy AND compile the necessary SQL args and categorized diagnostics helpers; previously these helpers were missing and the build could fail with undefined functions.
+- The build remains a candidate: no GitHub Actions job success, signed new binary, Windows runtime SQL probe or production event delivery is claimed.
+
+### Independently verified active PC facts
+- Live service `ZhiroxAICore` runs as **LocalSystem**; the active SQL Server service `MSSQLSERVER` also runs as **LocalSystem** (from READ-ONLY Windows registry/service metadata). This does **not** establish that the SQL login `NT AUTHORITY\\SYSTEM` has permission to SELECT from `SuperMarket.dbo.ItemName`; authenticated live query is still required.
+- `pc_os_backup_readiness` over `localhost` failed with ODBC Driver 18 certificate principal-name mismatch; host `Server` also failed (generic exit status 1).
+- A probe using local IP was rejected by the agent's allowed-server policy, which remained unchanged.
+- At 15:00 local, the database engine SQL ERRORLOG recorded successfully completed backup `D:\\Backup\\SuperMarket_backup_2026_10_22_150004_3880297.bak`. The agent safely hashed it: 20,009,472 bytes; SHA256 `b9cee29ea2f470f5356ff1fbcccfc238b790afebad68e78f47c939fb3796a02a`. A backup on O: was denied by `allowed_roots`. No backup was copied off-site; a hash does not constitute restore verification or ItemName data extraction.
+
+### Next hard gates
+1. Run the local `lpc:Server` SQLCMD probe **under the same identity that the eventual agent will use**; prove actual SELECT against ItemName, row count, and local `net_transport`. Any authentication/permission failure requires an explicit owner-approved least-privilege access design; do not silently grant LocalSystem sysadmin.
+2. Test changed SQL args on a compatible Windows Server/SQL Server 2008 R2 environment without modifying the protected POS host. Verify CI and a signed release artifact. Leave active agent 5.1.7 untouched until signoff.
+3. Migrate+integrate the relay's event-key idempotency only after isolated staging E2E. Confirm actual production events and downstream notification receipt separately. No synthetic test data in user-facing reports.
+4. Keep v5.1.8 `staged` and `publishable=false` until all gates are met.
+
+**Stop condition:** The active v5.1.7 agent cannot execute arbitrary scripts, so a remote live LPC SELECT is not authorized through existing relay capabilities. Do not bypass command allowlists or mutate legacy SQL engine/services.
