@@ -42,10 +42,10 @@ func pcOSItemNameSQLCmdArgs(database, query, certificateHost string) ([]string, 
     // Strictly local Shared Memory transport. -No sets optional encryption only
     // for this local-only LPC endpoint; no TCP, Named Pipes, remote host fallback,
     // TrustServerCertificate bypass (-C), or user-supplied server targets.
-    // SQL Server must self-confirm CONNECTIONPROPERTY('net_transport') as Shared memory.
+    // -y 4096 is bounded and covers the full fixed ItemName HEX projection; avoid legacy -y 8192.\n    // SQL Server must self-confirm CONNECTIONPROPERTY('net_transport') as Shared memory.
     return []string{
         "-S", "lpc:Server", "-E", "-No", "-d", "SuperMarket",
-        "-b", "-h", "-1", "-w", "8192", "-y", "8192",
+        "-b", "-h", "-1", "-w", "8192", "-y", "4096",
         "-l", "10", "-t", "90", "-r", "1", "-Q", query,
     }, nil
 }
