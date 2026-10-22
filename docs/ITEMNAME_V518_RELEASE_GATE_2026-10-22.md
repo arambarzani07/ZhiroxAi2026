@@ -46,3 +46,32 @@
 - **Still blocked:** Production certificate and database SELECT connectivity validation; live schema verification; event ingestion and idempotency validation; explicit policy decision for agent-owned local JSON baseline; signed Windows build and approval before cutover.
 
 **Do not promote, merge into a deployed release, or install on the market PC until all release gates are satisfied.**
+
+## 2026-10-22 09:32+03 — New live-read findings and fail-closed SQL boundary
+
+### Confirmed from read-only PC-side inspection
+
+- Relay agent `Server-c24b5c0f` was reporting a fresh v5.1.7 heartbeat (20 seconds old at 09:32 Baghdad), health score 100.
+- Windows machine Personal certificate store and Trusted Root certificate store both contained the same legacy SQL Server certificate under SHA-1 thumbprint `35F0CEE5D8F4520E680BAE46E01B32EEB033EA09`.
+- The DER certificate was extracted from both registry Blobs (732 bytes each) and compared **byte for byte**, yielding **exact equality**. Registry Blob wrappers themselves differed in size/metadata; the certificate DER did not.
+- A prior read-only SQL ERRORLOG showed that SQL Server 2008 R2 instance `MSSQL10_50.MSSQLSERVER` loaded the same thumbprint, started `SuperMarket`, and reported readiness on local SQL TCP ports. These facts do not demonstrate a successful `SELECT`.
+- The certificate is self-signed, lacks SAN, and has older SHA-1 signature. Windows Root-store presence makes local trust possible but **DOES NOT establish ODBC authentication success**; validate the exact server/certificate name and trust through a successful real connection without using `-C`.
+
+### New SQL command hardening
+
+- `pcOSItemNameSQLCmdArgs` now rejects arbitrary SQL, including even benign non-allowlisted `SELECT 1`, and only permits three exact built-in statements:
+  1. Fixed `OBJECT_ID(N'dbo.ItemName',N'U')` schema check;
+  2. Fixed `SELECT TOP(1) ItemNameID ... FROM dbo.ItemName` probe;
+  3. Fixed read-only `ItemName` product snapshot query.
+- The Windows watcher now uses the shared allowlisted constants rather than independent inline SQL strings.
+- Local **Go tests 4/4 passed** in the Linux Go 1.23.2 test harness (TLS flags, database whitelist, certificate hostname validation, SQL allowlist). The previous 7 policy tests and 14 JS guard tests are separate tests; this is not a claim of a full Windows agent build or live database connectivity.
+
+### Remaining mandatory gates
+
+1. Confirm an ODBC `sqlcmd` connection using `-N -F Server` with no `-C`, the authorized integrated Windows identity, and the correct instance. If certificate or protocol negotiation fails, report the blocker; **do not change the live SQL Server configuration** under the read-only lock.
+2. Demonstrate a real `SuperMarket.dbo.ItemName` SELECT with minimum impact and confirm expected columns. Do not begin continuous full-table polling until load impact and local-state policy are approved.
+3. Integrate and test event uniqueness through a staging relay, then verify owner-facing notification delivery separately. An inserted row in `pc_os_events` is not delivery to the owner.
+4. Resolve baseline state: the current watcher writes an agent-owned JSON file, which must be prohibited if the PC zero-write policy covers all local paths.
+5. Only after the above gates and owner authorization: signed build, hash verification, staging canary and release promotion. Until then, v5.1.8 must remain `staged`/`publishable=false`.
+
+**No protected PC application, SQL schema, SQL settings, or production Supabase function was modified.**
