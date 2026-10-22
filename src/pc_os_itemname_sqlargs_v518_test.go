@@ -59,7 +59,10 @@ func TestItemNameSharedMemoryOnly(t *testing.T) {
   if a=="-S" && (i+1>=len(args)||args[i+1]!="lpc:Server") { t.Fatal("remote target accepted") }
   if a=="-No" && (len(args)<2 || args[1]!="lpc:Server") { t.Fatal("optional encryption outside local shared memory") }
  }
- for _,forbidden:=range []string{"tcp:","np:","-C","-P","-U","-N","-F"}{
-  if strings.Contains(strings.Join(args," "),forbidden){t.Fatalf("forbidden remote auth/transport flag %q",forbidden)}
+ for _,a:=range args {
+  if a=="-C" || a=="-P" || a=="-U" || a=="-N" || a=="-F" {
+   t.Fatalf("forbidden remote auth/transport flag %q",a)
+  }
+  if strings.HasPrefix(a,"tcp:")||strings.HasPrefix(a,"np:"){t.Fatalf("remote SQL transport forbidden: %q",a)}
  }
 }
