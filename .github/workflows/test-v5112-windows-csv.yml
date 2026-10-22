@@ -1,0 +1,30 @@
+name: Windows v5.1.12 Live CSV Safety Canary
+on:
+  push:
+    branches:
+      - feature/v5112-live-itemname-csv-20261022
+    paths:
+      - 'src/pc_os_itemname_csv_v5112.go'
+      - 'src/pc_os_itemname_csv_v5112_test.go'
+      - 'src/pc_os_itemname_policy_v518.go'
+      - '.github/workflows/test-v5112-windows-csv.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  csv-windows-canary:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Test atomic replacement on Windows filesystem
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -v src/pc_os_itemname_policy_v518.go src/pc_os_itemname_csv_v5112.go src/pc_os_itemname_csv_v5112_test.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet src/pc_os_itemname_policy_v518.go src/pc_os_itemname_csv_v5112.go src/pc_os_itemname_csv_v5112_test.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
