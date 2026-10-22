@@ -1,0 +1,73 @@
+name: Publish Exact v5.1.9 Windows Candidate Transport
+on:
+  push:
+    branches:
+      - fix/v519-sqlcmd-safe-diagnostics-20261022
+    paths:
+      - '.github/workflows/publish-v519-exact-transport.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+env:
+  SOURCE_HEAD_SHA: '3ed03403326967aca98a939960b636e8b1084d32'
+  SOURCE_RUN: '39791282035'
+  ARTIFACT_NAME: 'Zhirox-PC-OS-v5.1.9-3ed03403326967aca98a939960b636e8b1084d32'
+  EXE_SHA256: 'b85c946f84c445d57b5cee9c8fcc03d287861075192ae8c1e76fd6cd1256ef62'
+  EXE_SIZE: '19965440'
+  RELEASE_TAG: 'v5.1.9-candidate-3ed03403'
+jobs:
+  publish-candidate:
+    if: github.repository == 'arambarzani07/ZhiroxAi2026'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download exact passing Windows build and assert immutable metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run view "$SOURCE_RUN" --repo "${{ github.repository }}" --json conclusion,headSha \
+            --jq 'if .conclusion == "success" and .headSha == env.SOURCE_HEAD_SHA then "pass" else error("wrong source run") end' | grep -qx pass
+          mkdir transport
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name "$ARTIFACT_NAME" --dir transport
+          test -f transport/ZhiroxAISupervisor.exe
+          test "$(sha256sum transport/ZhiroxAISupervisor.exe | awk '{print $1}')" = "$EXE_SHA256"
+          test "$(stat -c %s transport/ZhiroxAISupervisor.exe)" = "$EXE_SIZE"
+          python3 - <<'PY'
+          import json,os
+          with open('transport/metadata.json',encoding='utf-8-sig') as f: m=json.load(f)
+          with open('transport/signing-request.json',encoding='utf-8-sig') as f: s=json.load(f)
+          assert m['version']==s['version']=='5.1.9'
+          assert m['sha256']==s['sha256']==os.environ['EXE_SHA256']
+          assert m['source_commit']==os.environ['SOURCE_HEAD_SHA']
+          assert int(m['size'])==int(s['size'])==int(os.environ['EXE_SIZE'])
+          assert s['canonical']=='5.1.9|'+os.environ['EXE_SHA256']+'|'+os.environ['EXE_SIZE']
+          assert m['publishable'] is False
+          assert m['remote_input_enabled'] is False and m['unattended_access'] is False
+          assert m['attended_approval_required'] is True and m['pairing_code_returned'] is False
+          assert m['signing_public_key_hex']==s['signing_public_key_hex']=='19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
+          PY
+      - name: Publish isolated PRE-RELEASE transport, no automatic promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" \
+              --target "$SOURCE_HEAD_SHA" --prerelease \
+              --title 'Zhirox PC OS v5.1.9 Safe SQL Diagnostics (Candidate)' \
+              --notes 'Exact tested read-only SQLCMD diagnostics build. PRE-RELEASE transport only; no installation without Ed25519 signature, gated production update and rollback health checks. Old SQL Server/Admin/Cashier are not modified.'
+          fi
+          gh release upload "$RELEASE_TAG" --repo "${{ github.repository }}" --clobber \
+            transport/ZhiroxAISupervisor.exe transport/ZhiroxAISupervisor.exe.sha256 \
+            transport/metadata.json transport/signing-request.json
+      - name: Verify public artifact readback
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir verify
+          gh release download "$RELEASE_TAG" --repo "${{ github.repository }}" \
+            --pattern ZhiroxAISupervisor.exe --dir verify
+          test "$(sha256sum verify/ZhiroxAISupervisor.exe | awk '{print $1}')" = "$EXE_SHA256"
+          test "$(stat -c %s verify/ZhiroxAISupervisor.exe)" = "$EXE_SIZE"
+          echo 'PASS: immutable v5.1.9 candidate transport verified'
