@@ -88,3 +88,27 @@
 6. The user-facing fallback `Zhirox-ItemName-ReadOnly-Diagnostic.ps1` was prepared separately as a local diagnostic asset (not installed/deployed). It executes fixed SQLCMD SELECT-only checks using Windows integrated authentication and TLS certificate-name verification without `-C`. Execution and output on the authorized PC are still needed for proof.
 
 **Do not mark live ItemName SELECT or owner notification delivery as complete.** The remaining gates are: validated live SQL connection and SELECT, staging event ingress + deduplication, real destination configuration, and a recipient-confirmed notification test. Leave v5.1.8 STAGED and the protected supermarket systems unchanged.
+
+## 2026-10-22 10:30+03 — Live driver inventory and verified protocol blocker
+
+Read-only Windows Registry `registry_get` responses from agent `Server-c24b5c0f` positively confirmed these installed client providers:
+- `ODBC Driver 17 for SQL Server` = Installed
+- `ODBC Driver 18 for SQL Server` = Installed
+- `SQL Server Native Client 10.0` = Installed
+
+A fresh heartbeat at 2026-10-22 07:30:53 UTC confirmed the live agent is **5.1.7**, not 5.1.8. `itemname_delta` database events remain zero. Existing 5.1.7 only exposes the backup readiness probe, which reported `sqlcmd exit status 1` and does **not** expose 5.1.8 `pc_os_itemname_probe` or an arbitrary SQL action. Therefore no live SQL `SELECT` should be claimed.
+
+**Microsoft-confirmed SQL build compatibility:** the observed SQL Server 2008 R2 (RTM) build `10.50.1600.1` predates Microsoft's first documented SQL Server 2008 R2 SP3 TLS 1.2-supporting x64 build `10.50.6542.0`. TLS 1.2 is not assured for this old engine; the ODBC 18 secure connection may fail due to both certificate identity validation and protocol negotiation. See:
+- https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/connect/tls-1-2-support-microsoft-sql-server
+- https://learn.microsoft.com/en-us/sql/connect/odbc/connection-troubleshooting
+- https://learn.microsoft.com/en-us/sql/tools/sqlcmd/sqlcmd-connect-database-engine
+
+A documented alternative protocol is `sqlcmd -S lpc:Server` (local shared memory, no network), but this is **not** an approved automatic downgrade and has **not** been tested. It may depend on connection encryption policies and local permissions. Do not add a silent plaintext or certificate-trust fallback.
+
+The connected ChatGPT hourly condition-watch was activated to report genuine `itemname_delta` database events if and when they exist. This is a *polling notification route*, not real-time delivery proof and cannot replace testing Agent→Relay→DB or an owner-specific Telegram/email push provider.
+
+### Blocks remaining
+1. Run exactly authorized read-only `sqlcmd` probes from the market PC under the correct integrated Windows identity and certificate/trust/protocol constraints, or evaluate local-only shared-memory separately with approval. A failure is **not** a successful `dbo.ItemName` read.
+2. Verify agent's actual `SuperMarket.dbo.ItemName` schema, count and first row using only `SELECT`.
+3. Deploy and test relay uniqueness/idempotency only after staging; then verify actual owner-visible notifications end-to-end. Supabase `pc_os_events` currently empty.
+4. Keep v5.1.8 staged, release gate closed and the original SQL Server/Admin/Cashier read-only.
