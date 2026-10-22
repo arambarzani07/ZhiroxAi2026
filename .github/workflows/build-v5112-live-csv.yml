@@ -24,7 +24,7 @@ on:
       - 'src/pc_os_itemname_sqlargs_v518_test.go'
       - 'src/pc_os_itemname_sql_diagnostics_v518_test.go'
       - 'tools/patch_v518_itemname.py'
-      - '.github/workflows/build-v5112-itemname-format.yml'
+      - '.github/workflows/build-v5112-live-csv.yml'
       - 'src/pc_os_sql_compare_v5110_windows.go'
       - 'tools/patch_v5110_sql_compare.py'
       - 'tools/patch_v5111_itemname_format.py'
@@ -32,10 +32,6 @@ on:
       - 'tools/patch_v519_itemname.py'
       - 'tools/render_remote_canary_assets_v517.py'
       - 'tools/patch_remote_mf_startup_v1.py'
-
-  pull_request:
-    branches:
-      - fix/v518-itemname-decimal-price-20261022
 
 permissions:
   contents: read
