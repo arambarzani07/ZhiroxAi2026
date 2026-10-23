@@ -28,6 +28,8 @@ on:
       - '.github/workflows/build-v5113-cloud-csv.yml'
       - 'src/pc_os_csv_cloud_v5113_windows.go'
       - 'tools/patch_v5113_private_csv.py'
+      - 'tools/patch_pc_relay_readonly_errors.py'
+      - 'tools/test_patch_pc_relay_readonly_errors.py'
       - 'src/pc_os_sql_compare_v5110_windows.go'
       - 'tools/patch_v5110_sql_compare.py'
       - 'tools/patch_v5111_itemname_format.py'
