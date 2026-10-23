@@ -89,13 +89,19 @@ def patch(text: str) -> str:
         raise RuntimeError("fileHashAction missing")
     if 'func registryGetAction(args map[string]interface{})' not in text:
         raise RuntimeError("registryGetAction missing")
-    # No changes to allowedPath, safeRegistryPath, or registrySet/Delete.
-    original_registry_tail = text.split("func registrySetAction(", 1)[1]
+    # Preserve exact mutation function bodies; fileHashAction appears later
+    # in this source file, so comparing the entire tail would be incorrect.
+    def mutation_bodies(src: str) -> tuple[str, str]:
+        set_start = src.index("func registrySetAction(")
+        delete_start = src.index("func registryDeleteAction(", set_start)
+        env_start = src.index("func envGetAction(", delete_start)
+        return src[set_start:delete_start], src[delete_start:env_start]
+    before_mutations = mutation_bodies(text)
     if 'FILE_RESOLUTION_FAILED:' not in text:
         text = replace_block(text, "func fileHashAction(", "// wrapper avoids importing crypto/sha256", FILE_HASH)
     if "code='KEY_NOT_FOUND'" not in text:
         text = replace_block(text, "func registryGetAction(", "func registrySetAction(", REGISTRY_GET)
-    if text.split("func registrySetAction(", 1)[1] != original_registry_tail:
+    if mutation_bodies(text) != before_mutations:
         raise RuntimeError("Mutation code unexpectedly changed")
     for marker in ("allowedPath(strArg(args, \"path\"))", "filepath.EvalSymlinks(requested)",
                    "target, err := allowedPath(resolved)", "KEY_NOT_FOUND", "VALUE_NOT_FOUND"):
