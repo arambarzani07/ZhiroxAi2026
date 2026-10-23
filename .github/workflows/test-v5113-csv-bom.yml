@@ -1,0 +1,19 @@
+name: Verify Private CSV BOM Decoder Fix
+on:
+  push:
+    branches:
+      - feature/v5113-private-cloud-csv-20261023
+    paths:
+      - 'tools/test_v5113_csv_bom.mjs'
+      - 'supabase/functions/zhirox-live-csv-sync/index.ts'
+      - '.github/workflows/test-v5113-csv-bom.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test validated Unicode CSV BOM and strict header
+        run: node tools/test_v5113_csv_bom.mjs

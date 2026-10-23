@@ -130,6 +130,9 @@ func pcOSItemNameRefreshCSV(rows []pcOSItemNameRow) error {
   sha,updated,err:=pcOSItemNameEnsureLiveCSV(path,rows)
   if err!=nil{return err}
   pcOSItemNameStatusSet(map[string]interface{}{"csv_ready":true,"csv_path":path,"csv_sha256":sha,"csv_rows":len(rows),"csv_updated":updated})
+  if uploadErr:=pcOSItemNameCloudUpload(path,sha,len(rows));uploadErr!=nil {
+    pcOSItemNameStatusSet(map[string]interface{}{"csv_cloud_ready":false,"csv_cloud_error":uploadErr.Error()})
+  }
   return nil
 }
 func pcOSItemNameEvent(delta []pcOSItemNameChange, db,from,to string,offset int)error{
