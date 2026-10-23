@@ -56,8 +56,9 @@ function validCSV(src: Uint8Array): boolean {
 }
 
 const KURDISH_LATEST = "kurdish/Server-c24b5c0f/SuperMarket_Kurdish_Latest.csv";
-const RULESET_RELEASED_AT = "2026-10-23T06:30:00.000Z";
+const RULESET_RELEASED_AT = "2026-10-23T06:45:00.000Z";
 const SORANI_WORDS:Record<string,string>={
+"اسباق":"سبۆق","هولةندى":"هۆڵەندی",
 "خيارشور":"خەیاری ترش","رقم":"ژمارە","كيس":"کیسە","غرامى":"گرامی","غرامي":"گرامی","طرامى":"گرامی","طرامي":"گرامی","مانطى":"مانگی","مانطي":"مانگی","سال":"ساڵ","هنطفين":"هەنگوین","كةسك":"کەسک","سبي":"سپی",
 "كط":"کیلۆگرام","كغم":"کیلۆگرام","معجون":"مەعجوون","سائيل":"شل","برنجى":"برنجی","برنجي":"برنجی","مانط":"مانگ","شعري":"شەعریە","بةنير":"پەنیر","كارتون":"کارتۆن","ئوتوماتيك":"ئۆتۆماتیک",
 "شامثوي":"شامپۆی","ثةنيري":"پەنیری","ثةنيرى":"پەنیری","شوشةى":"شووشەی","شوشةي":"شووشەی","قودي":"قووتوو","بجوك":"بچووک","بجووك":"بچووک",
@@ -71,7 +72,7 @@ const SORANI_WORDS:Record<string,string>={
 };
 function soraniNormalize(name: string) {
   // Whole words only: do not rewrite substrings of brands.
-  let prepared=name.replace(/(^|[^\p{L}\p{M}])خيار\s+شور(?=$|[^\p{L}\p{M}])/gu,"$1خەیاری ترش");
+  let prepared=name.replace(/(^|[^\p{L}\p{M}])بالكة\s+بينك(?=$|[^\p{L}\p{M}])/gu,"$1فالکە پونگ").replace(/(^|[^\p{L}\p{M}])خيار\s+شور(?=$|[^\p{L}\p{M}])/gu,"$1خەیاری ترش");
   const first=prepared.match(/^[\p{L}\p{M}]+/u)?.[0];
   // Repair only known product-type prefixes at the start of a name.
   // Exact dictionary words (including possessive suffixes) take precedence.
