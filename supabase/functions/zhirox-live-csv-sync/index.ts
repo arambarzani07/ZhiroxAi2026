@@ -56,8 +56,9 @@ function validCSV(src: Uint8Array): boolean {
 }
 
 const KURDISH_LATEST = "kurdish/Server-c24b5c0f/SuperMarket_Kurdish_Latest.csv";
-const RULESET_RELEASED_AT = "2026-10-23T06:24:00.000Z";
+const RULESET_RELEASED_AT = "2026-10-23T06:27:00.000Z";
 const SORANI_WORDS:Record<string,string>={
+"كط":"کیلۆگرام","كغم":"کیلۆگرام","معجون":"مەعجوون","سائيل":"شل","برنجى":"برنجی","برنجي":"برنجی","مانط":"مانگ","شعري":"شەعریە","بةنير":"پەنیر","كارتون":"کارتۆن","ئوتوماتيك":"ئۆتۆماتیک",
 "شامثوي":"شامپۆی","ثةنيري":"پەنیری","ثةنيرى":"پەنیری","شوشةى":"شووشەی","شوشةي":"شووشەی","قودي":"قووتوو","بجوك":"بچووک","بجووك":"بچووک",
   "غرام":"گرام","جرام":"گرام","كيلوغرام":"کیلۆگرام","كيلو":"کیلۆ",
   "لتر":"لیتر","مللتر":"میلیلیتر","زيتون":"زەیتوون",
@@ -79,7 +80,9 @@ function soraniNormalize(name: string) {
   return translated.normalize("NFC")
     .replace(/ي/g,"ی").replace(/ى/g,"ی").replace(/ك/g,"ک")
     .replace(/ة/g,"ە").replace(/ۀ/g,"ە")
-    .replace(/\u0640/g,"").replace(/[ \t]+/g," ").trim();
+    .replace(/\u0640/g,"")
+    .replace(/([0-9٠-٩۰-۹])(?=(?:کیلۆگرام|میلیلیتر|کیلۆ|گرام|لیتر|دانە)(?![\p{L}\p{M}]))/gu,"$1 ")
+    .replace(/[ \t]+/g," ").trim();
 }
 function parseCSV(csv: string): string[][] {
   const rows:string[][]=[];let row:string[]=[],value="",quoted=false;
