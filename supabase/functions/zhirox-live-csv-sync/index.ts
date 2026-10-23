@@ -56,8 +56,9 @@ function validCSV(src: Uint8Array): boolean {
 }
 
 const KURDISH_LATEST = "kurdish/Server-c24b5c0f/SuperMarket_Kurdish_Latest.csv";
-const RULESET_RELEASED_AT = "2026-10-23T06:27:00.000Z";
+const RULESET_RELEASED_AT = "2026-10-23T06:30:00.000Z";
 const SORANI_WORDS:Record<string,string>={
+"خيارشور":"خەیاری ترش","رقم":"ژمارە","كيس":"کیسە","غرامى":"گرامی","غرامي":"گرامی","طرامى":"گرامی","طرامي":"گرامی","مانطى":"مانگی","مانطي":"مانگی","سال":"ساڵ","هنطفين":"هەنگوین","كةسك":"کەسک","سبي":"سپی",
 "كط":"کیلۆگرام","كغم":"کیلۆگرام","معجون":"مەعجوون","سائيل":"شل","برنجى":"برنجی","برنجي":"برنجی","مانط":"مانگ","شعري":"شەعریە","بةنير":"پەنیر","كارتون":"کارتۆن","ئوتوماتيك":"ئۆتۆماتیک",
 "شامثوي":"شامپۆی","ثةنيري":"پەنیری","ثةنيرى":"پەنیری","شوشةى":"شووشەی","شوشةي":"شووشەی","قودي":"قووتوو","بجوك":"بچووک","بجووك":"بچووک",
   "غرام":"گرام","جرام":"گرام","كيلوغرام":"کیلۆگرام","كيلو":"کیلۆ",
@@ -70,7 +71,7 @@ const SORANI_WORDS:Record<string,string>={
 };
 function soraniNormalize(name: string) {
   // Whole words only: do not rewrite substrings of brands.
-  let prepared=name;
+  let prepared=name.replace(/(^|[^\p{L}\p{M}])خيار\s+شور(?=$|[^\p{L}\p{M}])/gu,"$1خەیاری ترش");
   const first=prepared.match(/^[\p{L}\p{M}]+/u)?.[0];
   // Repair only known product-type prefixes at the start of a name.
   // Exact dictionary words (including possessive suffixes) take precedence.
@@ -81,7 +82,7 @@ function soraniNormalize(name: string) {
     .replace(/ي/g,"ی").replace(/ى/g,"ی").replace(/ك/g,"ک")
     .replace(/ة/g,"ە").replace(/ۀ/g,"ە")
     .replace(/\u0640/g,"")
-    .replace(/([0-9٠-٩۰-۹])(?=(?:کیلۆگرام|میلیلیتر|کیلۆ|گرام|لیتر|دانە)(?![\p{L}\p{M}]))/gu,"$1 ")
+    .replace(/([0-9٠-٩۰-۹])(?=(?:کیلۆگرام|میلیلیتر|کیلۆ|گرام|گرامی|لیتر|دانە|مانگ|مانگی|ساڵ)(?![\p{L}\p{M}]))/gu,"$1 ")
     .replace(/[ \t]+/g," ").trim();
 }
 function parseCSV(csv: string): string[][] {
@@ -128,7 +129,7 @@ async function persistKurdishCSV(agentId:string,file:Uint8Array,srcHash:string,e
     const confirmed=old?.status==="verified"&&old.original_name===r[1];
     const adjusted=confirmed?old!.kurdish_name:soraniNormalize(r[1]);
     // Normalization is not semantic translation; unverified names remain reviewable.
-    const status=confirmed?"verified":(/[اأإءآ]/.test(adjusted)?"needs_review":"normalized");
+    const status=confirmed?"verified":((!/\p{L}/u.test(adjusted)||/[اأإءآ]/.test(adjusted))?"needs_review":"normalized");
     if(confirmed)verified++;else if(status==="needs_review")review++;else normalized++;
     if(!old||old.original_name!==r[1]||old.kurdish_name!==adjusted||old.status!==status)
       pending.push({agent_id:agentId,item_name_id:r[0],original_name:r[1],
