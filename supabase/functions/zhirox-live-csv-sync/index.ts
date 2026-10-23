@@ -55,14 +55,15 @@ function validCSV(src: Uint8Array): boolean {
   return s.startsWith(HEADER) && s.endsWith("\r\n") && !s.includes("\u0000");
 }
 
-const KURDISH_LATEST = "kurdish/Server-c24b5c0f/SuperMarket_ItemName_latest.csv";
+const KURDISH_LATEST = "kurdish/Server-c24b5c0f/SuperMarket_Kurdish_Latest.csv";
 const SORANI_WORDS:Record<string,string>={
   "غرام":"گرام","جرام":"گرام","كيلوغرام":"کیلۆگرام","كيلو":"کیلۆ",
   "لتر":"لیتر","مللتر":"میلیلیتر","زيتون":"زەیتوون",
   "اسود":"ڕەش","أسود":"ڕەش","ابيض":"سپی","أبيض":"سپی",
   "احمر":"سوور","أحمر":"سوور","اخضر":"سەوز","أخضر":"سەوز",
   "حليب":"شیر","سكر":"شەکر","ملح":"خوێ","عدس":"نیسک",
-  "حمص":"نۆک","خل":"سرکە"
+  "حمص":"نۆک","خل":"سرکە",
+"طرام":"گرام","مل":"میلیلیتر","عدد":"دانە","كيك":"کێک","ثسكيت":"بیسکویت","بسكويت":"بیسکویت","شوشة":"شووشە","شةربةت":"شەربەت","شربت":"شەربەت","قودى":"قووتوو","ثةنير":"پەنیر","شير":"شیر","مندالان":"منداڵان","شامثوى":"شامپۆی","شامثو":"شامپۆ","صابون":"سابوون","سابون":"سابوون","جلك":"جلک","ويفةر":"وەیفەر","دةرمان":"دەرمان","رةش":"ڕەش","ددان":"ددان","رةقةم":"ژمارە","زةيتون":"زەیتوون","كيسة":"کیسە","طةورة":"گەورە","جسم":"جەستە","سائل":"شل","علك":"بنێشت","قةلةم":"قەڵەم","بةرداخ":"بەرداخ","تركى":"تورکی","تركي":"تورکی","بهارات":"بەهارات","زةيت":"ڕۆن","ملةون":"ڕەنگاوڕەنگ","عايلى":"خێزانی","مريشك":"مریشک","فستةق":"فستق","ضيثس":"چیپس","ثاكةت":"پاکەت","عسل":"هەنگوین","سةفةرى":"سەفەری","ئةلمانى":"ئەڵمانی","طولاف":"گوڵاو","سور":"سوور","ثرض":"پرچ","زةر":"زەرد","سثى":"سپی","ثيتزا":"پیتزا","شين":"شین","شةكر":"شەکر"
 };
 function soraniNormalize(name: string) {
   // Whole words only: do not rewrite substrings of brands.
@@ -152,9 +153,9 @@ async function backfillLatestKurdish(){
   const {data:source,error}=await DB.from("pc_live_csv_manifest").select("*")
     .eq("agent_id","Server-c24b5c0f").maybeSingle();
   if(error||!source)return;
-  const {data:current}=await DB.from("pc_csv_kurdish_manifest").select("source_sha256")
+  const {data:current}=await DB.from("pc_csv_kurdish_manifest").select("source_sha256,storage_path")
     .eq("agent_id",source.agent_id).maybeSingle();
-  if(current?.source_sha256===source.sha256)return;
+  if(current?.source_sha256===source.sha256 && current.storage_path===KURDISH_LATEST)return;
   const {data:file,error:downloadError}=await DB.storage.from(BUCKET).download(source.storage_path);
   if(downloadError||!file)throw new Error("backfill_source_unavailable");
   const bytes=new Uint8Array(await file.arrayBuffer());
@@ -233,7 +234,7 @@ Deno.serve(async (req: Request) => {
     const {data, error}=await DB.from("pc_live_csv_manifest").select("storage_path,sha256,row_count,bytes,uploaded_at").eq("agent_id",agentId).maybeSingle();
     if(error || !data) return json({ok:false,error:"csv_not_uploaded"},404);
     const {data:link,error:linkError}=await DB.storage.from(BUCKET).createSignedUrl(data.storage_path,120,{
-      download:"SuperMarket_ItemName_latest.csv"
+      download:"SuperMarket_Kurdish_Latest.csv"
     });
     if(linkError||!link?.signedUrl)return json({ok:false,error:"download_unavailable"},503);
     return json({ok:true,url:link.signedUrl,sha256:data.sha256,rows:data.row_count,bytes:data.bytes,uploaded_at:data.uploaded_at,expires_in_seconds:120});
