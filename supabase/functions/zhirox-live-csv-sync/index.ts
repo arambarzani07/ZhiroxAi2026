@@ -50,7 +50,7 @@ async function readMax(req: Request): Promise<Uint8Array> {
 function validCSV(src: Uint8Array): boolean {
   if (src.length < 80) return false;
   let s: string;
-  try { s = new TextDecoder("utf-8", { fatal: true }).decode(src); }
+  try { s = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(src); }
   catch { return false; }
   return s.startsWith(HEADER) && s.endsWith("\r\n") && !s.includes("\u0000");
 }
