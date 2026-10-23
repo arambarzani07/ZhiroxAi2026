@@ -31,6 +31,10 @@ func registrySetAction(args map[string]interface{}) (interface{}, error) {
 func registryDeleteAction(args map[string]interface{}) (interface{}, error) {
     return nil, errors.New("writes must remain isolated")
 }
+
+func envGetAction(args map[string]interface{}) (interface{}, error) {
+    return nil, nil
+}
 '''
 
 class PatchTests(unittest.TestCase):
@@ -51,6 +55,14 @@ class PatchTests(unittest.TestCase):
             modified.split('func registrySetAction(', 1)[1],
         )
         self.assertEqual(modified, patch(modified))
+
+    def test_file_hash_after_registry_mutations(self):
+        start = ORIGINAL.index("func fileHashAction(")
+        registry_start = ORIGINAL.index("func registryGetAction(")
+        block = ORIGINAL[start:registry_start]
+        reordered = ORIGINAL[:start] + ORIGINAL[registry_start:] + block
+        self.assertIn("FILE_NOT_FOUND:", patch(reordered))
+        self.assertEqual(patch(reordered), patch(patch(reordered)))
 
     def test_fail_closed_missing_handlers(self):
         with self.assertRaises(RuntimeError):
