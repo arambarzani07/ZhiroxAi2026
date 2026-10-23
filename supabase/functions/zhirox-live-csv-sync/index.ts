@@ -168,6 +168,21 @@ Deno.serve(async (req: Request) => {
     try{const k=await persistKurdishCSV(agentId,file,actual,rowCount);return json({ok:true,sha256:actual,rows:rowCount,bytes:file.length,private:true,kurdish:k});}
     catch(e){console.error("kurdish_derivation_failed",e);return json({ok:true,sha256:actual,rows:rowCount,bytes:file.length,private:true,kurdish_ready:false});}
   }
+  const kurdishDownload = path.match(/^\/api\/connector\/([A-Za-z0-9_-]{6,100})\/download-kurdish$/);
+  if(kurdishDownload && req.method==="GET"){
+    if(!(await ownerConnectorAuth(req)))return json({ok:false,error:"unauthorized"},401);
+    const {data,error}=await DB.from("pc_csv_kurdish_manifest")
+      .select("storage_path,output_sha256,rows,bytes,names_verified,names_normalized,names_needing_review,updated_at")
+      .eq("agent_id",kurdishDownload[1]).maybeSingle();
+    if(error||!data)return json({ok:false,error:"kurdish_csv_not_ready"},404);
+    const {data:signed,error:signErr}=await DB.storage.from(BUCKET).createSignedUrl(data.storage_path,120,{
+      download:"SuperMarket_ItemName_Kurdish_latest.csv"
+    });
+    if(signErr||!signed?.signedUrl)return json({ok:false,error:"download_unavailable"},503);
+    return json({ok:true,url:signed.signedUrl,sha256:data.output_sha256,rows:data.rows,
+      bytes:data.bytes,verified:data.names_verified,normalized:data.names_normalized,
+      needs_review:data.names_needing_review,updated_at:data.updated_at,expires_in_seconds:120});
+  }
   const download = path.match(/^\/api\/connector\/([A-Za-z0-9_-]{6,100})\/download$/);
   if (download && req.method==="GET") {
     if (!(await ownerConnectorAuth(req))) return json({ok:false,error:"unauthorized"},401);
