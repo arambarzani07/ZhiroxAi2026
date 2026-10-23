@@ -56,8 +56,18 @@ function validCSV(src: Uint8Array): boolean {
 }
 
 const KURDISH_LATEST = "kurdish/Server-c24b5c0f/SuperMarket_ItemName_latest.csv";
+const SORANI_WORDS:Record<string,string>={
+  "غرام":"گرام","جرام":"گرام","كيلوغرام":"کیلۆگرام","كيلو":"کیلۆ",
+  "لتر":"لیتر","مللتر":"میلیلیتر","زيتون":"زەیتوون",
+  "اسود":"ڕەش","أسود":"ڕەش","ابيض":"سپی","أبيض":"سپی",
+  "احمر":"سوور","أحمر":"سوور","اخضر":"سەوز","أخضر":"سەوز",
+  "حليب":"شیر","سكر":"شەکر","ملح":"خوێ","عدس":"نیسک",
+  "حمص":"نۆک","خل":"سرکە"
+};
 function soraniNormalize(name: string) {
-  return name.normalize("NFC")
+  // Whole words only: do not rewrite substrings of brands.
+  const translated=name.replace(/[\p{L}\p{M}]+/gu,w=>SORANI_WORDS[w]??w);
+  return translated.normalize("NFC")
     .replace(/ي/g,"ی").replace(/ى/g,"ی").replace(/ك/g,"ک")
     .replace(/ة/g,"ە").replace(/ۀ/g,"ە")
     .replace(/\u0640/g,"").replace(/[ \t]+/g," ").trim();
@@ -85,22 +95,38 @@ async function persistKurdishCSV(agentId:string,file:Uint8Array,srcHash:string,e
   const records=parseCSV(text);
   if(JSON.stringify(records[0])!==JSON.stringify(["\uFEFF"+header[0],...header.slice(1)])||records.length!==expectedRows+1)
     throw new Error("kurdish_csv_structure_mismatch");
-  const overrides=new Map<string,string>();
+  const saved=new Map<string,{original_name:string,kurdish_name:string,status:string}>();
   for(let from=0;;from+=1000){
-    const {data,error}=await DB.from("pc_csv_kurdish_names").select("item_name_id,kurdish_name,status")
-      .eq("agent_id",agentId).eq("status","verified").range(from,from+999);
-    if(error)throw new Error("kurdish_override_read_failed");
-    for(const r of data||[])overrides.set(String(r.item_name_id),r.kurdish_name);
+    const {data,error}=await DB.from("pc_csv_kurdish_names")
+      .select("item_name_id,original_name,kurdish_name,status")
+      .eq("agent_id",agentId).order("item_name_id").range(from,from+999);
+    if(error)throw new Error("kurdish_name_read_failed");
+    for(const r of data||[])saved.set(String(r.item_name_id),r);
     if((data||[]).length<1000)break;
   }
   let verified=0,normalized=0,review=0;
+  const pending:Record<string,unknown>[]=[];
   const outRows:string[]=["\uFEFF"+header.join(",")];
+  const ids=new Set<string>();
   for(const r of records.slice(1)){
-    if(r.length!==5||!r[0])throw new Error("kurdish_csv_invalid_row");
-    const confirmed=overrides.get(r[0]);
-    const adjusted=confirmed??soraniNormalize(r[1]);
-    if(confirmed!==undefined)verified++; else if(/[اأإءآ]/.test(adjusted))review++;else normalized++;
+    if(r.length!==5||!r[0]||ids.has(r[0]))throw new Error("kurdish_csv_invalid_row");
+    ids.add(r[0]);
+    const old=saved.get(r[0]);
+    // Never carry a verified name onto a changed product identity/name.
+    const confirmed=old?.status==="verified"&&old.original_name===r[1];
+    const adjusted=confirmed?old!.kurdish_name:soraniNormalize(r[1]);
+    // Normalization is not semantic translation; unverified names remain reviewable.
+    const status=confirmed?"verified":(/[اأإءآ]/.test(adjusted)?"needs_review":"normalized");
+    if(confirmed)verified++;else if(status==="needs_review")review++;else normalized++;
+    if(!old||old.original_name!==r[1]||old.kurdish_name!==adjusted||old.status!==status)
+      pending.push({agent_id:agentId,item_name_id:r[0],original_name:r[1],
+        kurdish_name:adjusted,status,updated_at:new Date().toISOString()});
     outRows.push([r[0],adjusted,r[2],r[3],r[4]].map(csvEscape).join(","));
+  }
+  for(let i=0;i<pending.length;i+=500){
+    const {error}=await DB.from("pc_csv_kurdish_names")
+      .upsert(pending.slice(i,i+500),{onConflict:"agent_id,item_name_id"});
+    if(error)throw new Error("kurdish_name_save_failed");
   }
   const out=new TextEncoder().encode(outRows.join("\r\n")+"\r\n");
   if(out.byteLength>MAX_BYTES)throw new Error("kurdish_csv_oversize");
@@ -120,6 +146,23 @@ async function persistKurdishCSV(agentId:string,file:Uint8Array,srcHash:string,e
   if(error)throw new Error("kurdish_manifest_write_failed");
   return {ready:true,sha256:digest,rows:expectedRows,verified,normalized,review};
 }
+
+
+async function backfillLatestKurdish(){
+  const {data:source,error}=await DB.from("pc_live_csv_manifest").select("*")
+    .eq("agent_id","Server-c24b5c0f").maybeSingle();
+  if(error||!source)return;
+  const {data:current}=await DB.from("pc_csv_kurdish_manifest").select("source_sha256")
+    .eq("agent_id",source.agent_id).maybeSingle();
+  if(current?.source_sha256===source.sha256)return;
+  const {data:file,error:downloadError}=await DB.storage.from(BUCKET).download(source.storage_path);
+  if(downloadError||!file)throw new Error("backfill_source_unavailable");
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  if(bytes.length!==source.bytes||await sha(bytes)!==source.sha256)
+    throw new Error("backfill_source_integrity_failed");
+  await persistKurdishCSV(source.agent_id,bytes,source.sha256,source.row_count);
+}
+EdgeRuntime.waitUntil(backfillLatestKurdish().catch(e=>console.error("kurdish_backfill_failed",e)));
 
 Deno.serve(async (req: Request) => {
   const raw = new URL(req.url).pathname;
