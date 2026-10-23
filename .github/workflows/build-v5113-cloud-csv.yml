@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/v5113-private-cloud-csv-20261023
+      - fix/pc-relay-readonly-errors-v5113-integration
     paths:
       - '.github/workflows/build-v517-remote-screen-canary.yml'
       - 'src/pc_os_remote_canary_v517_windows.go'
@@ -27,6 +28,8 @@ on:
       - '.github/workflows/build-v5113-cloud-csv.yml'
       - 'src/pc_os_csv_cloud_v5113_windows.go'
       - 'tools/patch_v5113_private_csv.py'
+      - 'tools/patch_pc_relay_readonly_errors.py'
+      - 'tools/test_patch_pc_relay_readonly_errors.py'
       - 'src/pc_os_sql_compare_v5110_windows.go'
       - 'tools/patch_v5110_sql_compare.py'
       - 'tools/patch_v5111_itemname_format.py'
@@ -182,6 +185,10 @@ jobs:
           python tools/patch_v5112_live_csv.py
           Copy-Item 'src/pc_os_csv_cloud_v5113_windows.go' 'buildsrc/pc_os_csv_cloud_v5113_windows.go'
           python tools/patch_v5113_private_csv.py
+          python -m unittest discover -s tools -p test_patch_pc_relay_readonly_errors.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/patch_pc_relay_readonly_errors.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item 'src/pc_os_sql_compare_v5110_windows.go' 'buildsrc/pc_os_sql_compare_v5110_windows.go'
           $next = (Get-Content 'release-gates\v5.1.1-next-public-key.hex' -Raw).Trim().ToLowerInvariant()
           if ($next -ne '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143') { throw 'pinned update key mismatch' }
