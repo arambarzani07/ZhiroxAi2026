@@ -56,7 +56,9 @@ function validCSV(src: Uint8Array): boolean {
 }
 
 const KURDISH_LATEST = "kurdish/Server-c24b5c0f/SuperMarket_Kurdish_Latest.csv";
+const RULESET_RELEASED_AT = "2026-10-23T06:24:00.000Z";
 const SORANI_WORDS:Record<string,string>={
+"شامثوي":"شامپۆی","ثةنيري":"پەنیری","ثةنيرى":"پەنیری","شوشةى":"شووشەی","شوشةي":"شووشەی","قودي":"قووتوو","بجوك":"بچووک","بجووك":"بچووک",
   "غرام":"گرام","جرام":"گرام","كيلوغرام":"کیلۆگرام","كيلو":"کیلۆ",
   "لتر":"لیتر","مللتر":"میلیلیتر","زيتون":"زەیتوون",
   "اسود":"ڕەش","أسود":"ڕەش","ابيض":"سپی","أبيض":"سپی",
@@ -67,7 +69,13 @@ const SORANI_WORDS:Record<string,string>={
 };
 function soraniNormalize(name: string) {
   // Whole words only: do not rewrite substrings of brands.
-  const translated=name.replace(/[\p{L}\p{M}]+/gu,w=>SORANI_WORDS[w]??w);
+  let prepared=name;
+  const first=prepared.match(/^[\p{L}\p{M}]+/u)?.[0];
+  // Repair only known product-type prefixes at the start of a name.
+  // Exact dictionary words (including possessive suffixes) take precedence.
+  if(first && !Object.hasOwn(SORANI_WORDS,first))
+    prepared=prepared.replace(/^(ثةنير|ثسكيت|شامثو)(?=[\p{L}\p{M}])/u,"$1 ");
+  const translated=prepared.replace(/[\p{L}\p{M}]+/gu,w=>SORANI_WORDS[w]??w);
   return translated.normalize("NFC")
     .replace(/ي/g,"ی").replace(/ى/g,"ی").replace(/ك/g,"ک")
     .replace(/ة/g,"ە").replace(/ۀ/g,"ە")
@@ -153,9 +161,9 @@ async function backfillLatestKurdish(){
   const {data:source,error}=await DB.from("pc_live_csv_manifest").select("*")
     .eq("agent_id","Server-c24b5c0f").maybeSingle();
   if(error||!source)return;
-  const {data:current}=await DB.from("pc_csv_kurdish_manifest").select("source_sha256,storage_path")
+  const {data:current}=await DB.from("pc_csv_kurdish_manifest").select("source_sha256,storage_path,updated_at")
     .eq("agent_id",source.agent_id).maybeSingle();
-  if(current?.source_sha256===source.sha256 && current.storage_path===KURDISH_LATEST)return;
+  if(current?.source_sha256===source.sha256 && current.storage_path===KURDISH_LATEST && current.updated_at>=RULESET_RELEASED_AT)return;
   const {data:file,error:downloadError}=await DB.storage.from(BUCKET).download(source.storage_path);
   if(downloadError||!file)throw new Error("backfill_source_unavailable");
   const bytes=new Uint8Array(await file.arrayBuffer());
