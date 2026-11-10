@@ -1,0 +1,44 @@
+name: Validate Read-Only Legacy Market Intelligence
+
+on:
+  pull_request:
+    paths:
+      - 'internal/marketintel/**'
+      - '.github/workflows/validate-marketintel-readonly.yml'
+  push:
+    branches:
+      - 'feature/legacy-market-intelligence-v1'
+    paths:
+      - 'internal/marketintel/**'
+      - '.github/workflows/validate-marketintel-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Go unit tests and vet (no production access)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Check read-only intelligence package
+        working-directory: internal/marketintel
+        env:
+          GO111MODULE: 'off'
+          GOTOOLCHAIN: local
+        run: |
+          go test -race -count=1 -v .
+          go vet .
+
+      - name: Confirm no command/network/database IO dependencies
+        run: |
+          if grep -nE '"(os/exec|database/sql|net/http|net|syscall|unsafe)"' internal/marketintel/*.go; then
+            echo "Forbidden integration dependency in read-only analyzer"
+            exit 1
+          fi
