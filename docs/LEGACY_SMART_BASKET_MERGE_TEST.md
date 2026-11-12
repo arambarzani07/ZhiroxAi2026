@@ -34,3 +34,29 @@ GO111MODULE=off go vet .
 5. Explicit release approval, verified backup, rollback and signed update.
 
 **Sorani:** ئەم کۆدە تەنها بۆ تاقیکردنەوەی کۆکردنەوەی بارکۆدی دووبارەیە؛ لە کاشێری ڕاستەقینە دامەزراو نییە.
+
+## Phase 2: HID input and receipt parity (prototype only)
+
+- `internal/basketmerge/scanner.go`: deterministic scanner parser; Enter sends a complete barcode immediately, while no-Enter scanner input is only finalized after a caller-provided quiet-time observation.
+- The prototype quiet threshold is 250 ms and needs calibration with the physical scanner on an isolated test PC. It is NOT proof of compatibility with the deployed cashier.
+- Accept only ASCII digit input of bounded length. Do not install system-wide keyboard hooks, monitor cashiers' typing, or capture user passwords.
+- Retain leading zeros. Never equate barcode value with scan EventID. No auto-merge for unverified prefix-27 variable-weight labels.
+- Event IDs are globally deduplicated within the in-memory five-ticket session. A late retry after switching tickets must not charge a new customer.
+- `internal/basketmerge/receipt.go`: a read-only in-memory receipt preview and exact parity check; this does not interact with the real receipt printer or legacy accounting.
+- The `ApplyScan` caller is responsible for resolving products and verifying unit price, barcode alias, permissions, pricing version and unit conversion against a trusted catalog. No authorization bypass is implied by the Go API.
+
+### New checks
+
+- Enter and CRLF versus no-Enter scanners; explicit gap handling and invalid/short/oversized barcode rejection.
+- Two independent scans from the photographed legacy basket example result in one line with quantity 2 and total 1,000 IQD.
+- A duplicated network/input event is not counted twice, even across tickets.
+- Receipt line and grand total arithmetic cannot drift from the current basket snapshot.
+- No file writes, SQL commands, sale recording, stock decrement, printing, or Windows input capture.
+
+### Remaining gates before deployment
+
+1. Establish a Windows test copy of the *actual* scanner, legacy database schema, and existing Cashier.exe with zero production side effects.
+2. Prove scan segmentation using the real barcode reader (Enter/no-Enter and optional prefixes) under Kurdish keyboard layouts.
+3. Verify catalog and pricing mapping, including weight-scale prefix 27 and separate product alias / carton semantics.
+4. Demonstrate basket-display/physical-receipt parity and exactly-once persisted sales on a **test database**.
+5. Keep this feature as Draft PR only until genuine end-to-end staging evidence exists.
