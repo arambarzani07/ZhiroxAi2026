@@ -81,8 +81,14 @@ func ApplyScan(before Session,x Scan) (Session,Outcome,error) {
  idx:=-1
  for i:=range before.Tickets {if before.Tickets[i].ID==x.TicketID {idx=i;break}}
  if idx<0 {return before,"",errors.New("ticket not found")}
+ // Event IDs are session-global. A late retry after switching tickets
+ // must NOT charge the same physical scan to a different customer.
+ for _,candidate:=range before.Tickets {
+  for _,event:=range candidate.SeenEventIDs {
+   if event==x.EventID {return before,AlreadyProcessed,nil}
+  }
+ }
  t:=before.Tickets[idx]
- for _,event:=range t.SeenEventIDs {if event==x.EventID {return before,AlreadyProcessed,nil}}
  if len(t.SeenEventIDs)>=MaxScansPerTicket{return before,"",errors.New("scan history limit")}
  if _,err:=TotalIQD(t);err!=nil{return before,"",err}
  out:=Session{Tickets:make([]Ticket,len(before.Tickets))}
