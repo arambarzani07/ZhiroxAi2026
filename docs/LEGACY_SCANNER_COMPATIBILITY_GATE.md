@@ -47,3 +47,24 @@ The test fixture timing limit (80 ms between keys) and idle delay (250 ms) are p
 - Before any production promotion, use an isolated test computer/database, verify native integration strategy, pass sale and inventory end-to-end tests, verify backups and obtain explicit release approval.
 
 **کوردی:** ئەمە تاقیکردنەوەی سەربەخۆیە؛ هێشتا بارکۆدخوێنی ڕاستەقینە و Cashier.exe ـی مارکێت بە یەکەوە تاقی نەکراونەتەوە.
+
+## Phase 4: ticket-focus/revision guard (development-only)
+
+`internal/basketmerge/scan_gate.go` adds an in-memory application-level `ScanGate`. It makes these testable rules explicit:
+
+- The scanner field must have application-managed focus before accepting a scan. The scanner's identity is **not** authenticated by this alone.
+- Starting a scan captures the selected ticket, focus epoch and basket revision.
+- Switching tickets, even away and back to the same ticket, clears scanner focus and invalidates all pending scan leases.
+- Losing/regaining scanner-field focus invalidates pending scan leases.
+- An intervening basket update invalidates pending scan leases; stale scans must be consciously retried or rescanned, never silently charged.
+- A repeated physical scan event ID cannot add extra quantity.
+- State is deep-copied and invalid scans do not mutate the original session.
+- The test harness pairs Enter and no-Enter synthetic traces with the scan gate and in-memory receipt-parity checks.
+
+### Important limitations
+
+This is **not** connected to the legacy Cashier.exe. Physical HID scanning, Windows foreground/focus transitions, basket UI hooks, persistent transaction ID generation, multi-terminal synchronization and crash replay are **not yet verified**. A real POS adapter would have to own authoritative session state, serialize writes and authenticate scanner provenance before allowing a single sale. Never install a global keyboard logger or interact with the live cashier via remote input capture.
+
+### Phase 4 pass/fail definition
+
+Automated tests must pass `go test -race -count=1 -v .` and `go vet .` in `internal/basketmerge`. Real hardware, real SQL or production release cannot be marked successful based on these in-memory tests.
