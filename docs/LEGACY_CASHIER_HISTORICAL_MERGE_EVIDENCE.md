@@ -45,3 +45,23 @@ Read-only Python stdlib (`csv`, `decimal`, `datetime`, `collections`) scan; no p
 Obtain an **offline copy** of the exact binary, hash-check it against the approved SHA-256 and perform static PE/VB6 resource/control/scan-event analysis **without executing the copy against live SQL**. Only if a genuine native toggle or legally maintainable method is demonstrated should a separate nonproduction test be considered. If it is not, the reliable route is an actual vendor revision or replacement application, not an unsafe external key hook or DB rewrite.
 
 **User-facing summary (Sorani):** لە پاشەکەوتی فرۆشتنی کۆندا بەڵگەی بەهێز هەیە کە هەمان کاڵا لە هەمان پسووڵەدا بە ڕیزی جیاواز تۆمار کراوە، هەرچەندە داتابەیس بڕی 2 لە یەک ڕیزدا دەتوانێت تۆمار بکات. تا ناوخۆی فایلە ڕەسەنەکە پشکنرێت، جێبەجێکردنی خودکاری Merge لە Cashier.exe پشتڕاست نەکراوە.
+
+## Time-split cross-check (historical records)
+
+The PC Relay file metadata shows a `Cashier.exe` last-modified timestamp of 2026-06-23 12:19 local time. Splitting the independent 2025-11 through 2026-08-17 sales export at **2026-06-24**:
+
+| Historical period | Rows | Quantity > 1 | Repeated product+price groups | Repeated groups all rows qty=1 |
+| --- | ---: | ---: | ---: | ---: |
+| Before 2026-06-24 | 58,336 | 7,866 | 8,412 | 8,171 |
+| On/after 2026-06-24 | 15,165 | 1,614 | 2,301 | 2,237 |
+| Of later period: on/after 2026-07-01 | 13,045 | 1,354 | 2,004 | 1,948 |
+
+This supports the conclusion that historical per-product duplicate sale rows persisted **after the file modification date**. A file modification date is **not** a verified date of production deployment, nor does the CSV establish the exact process version for each receipt. Do not infer that a live setting definitely exists or cannot exist.
+
+## Status of actual legacy executable access
+
+- Existing PC Relay allows read-only file listing and hashing of `D:\DataBase\Cashier.exe`, but **does not provide the protected binary body for PE/VB6 static inspection**.
+- The user's currently accessible ChatGPT Library contains previous reverse-engineering findings and rebuild source but no verified distributable copy of the original 376,832-byte Cashier.exe from which to analyze its live basket control/event handlers in this turn.
+- No attempt was made to bypass PC Relay read restrictions, execute the binary, inject input, edit the executable, patch the database or change Windows configuration.
+
+**Next gate:** a user-approved exported *offline* copy of the exact Cashier.exe, plus a SHA-256 identity match, is necessary for defensible static disassembly and native merge feasibility. Until then the native feature remains **UNVERIFIED**, with production unchanged.
