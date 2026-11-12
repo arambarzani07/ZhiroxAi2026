@@ -5,8 +5,8 @@
 ## Read-only Windows evidence
 
 - PC Relay Agent `Server-c24b5c0f` reported version 5.1.13 and a fresh heartbeat on 2026-11-12.
-- Historical read-only Windows driver enumeration (2026-10-12) contained `POS HID Barcode scanner` (`hidscanner.inf`), `HID Keyboard Device` and several `USB Input Device` records.
-- The driver inventory confirms only Windows recognition **at the time of the snapshot**. It does **not** prove the physical scanner's model, suffix configuration, focus behavior, connection status, real key intervals or compatibility today.
+- Fresh read-only driver enumeration completed 2026-11-12 18:03:30 UTC (21:03:30 local Iraq) and included `POS HID Barcode scanner` (`hidscanner.inf`) and two `HID Keyboard Device` records. Previous evidence from 2026-10-12 was consistent.
+- A driver listing proves Windows has registered the driver/device entry at the moment checked. It does **not** prove the physical scanner is currently plugged in or working, nor its model, suffix configuration, focus behavior, real key intervals or application-level compatibility.
 - Historical `app_status` showed legacy `D:\DataBase\Cashier.exe` present/running in October. This is not proof of current UI automation compatibility.
 - No device serials, keypress traces, screenshots, credentials, personal customer data or live business SQL rows were captured for this feature.
 
@@ -28,7 +28,7 @@ The test fixture timing limit (80 ms between keys) and idle delay (250 ms) are p
 
 | Verification | Status |
 | --- | --- |
-| Historical Windows HID scanner driver observed | Evidenced, historical only |
+| Current Windows POS HID barcode scanner driver listed | Evidenced on 2026-11-12; physical scan still unverified |
 | Enter/no-Enter synthetic traces | Automated tests |
 | Multiple held tickets and retry protection | Automated tests |
 | Synthetic basket/receipt arithmetic | Automated tests |
