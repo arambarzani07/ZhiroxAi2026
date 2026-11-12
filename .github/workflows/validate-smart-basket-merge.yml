@@ -1,0 +1,37 @@
+name: Safe Smart Basket Merge Tests
+on:
+  push:
+    branches: [feature/legacy-smart-basket-merge-safe-prototype]
+    paths:
+      - 'internal/basketmerge/**'
+      - '.github/workflows/validate-smart-basket-merge.yml'
+  pull_request:
+    paths:
+      - 'internal/basketmerge/**'
+      - '.github/workflows/validate-smart-basket-merge.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Race-checked unit tests and vet
+        working-directory: internal/basketmerge
+        env:
+          GO111MODULE: 'off'
+        run: |
+          go test -race -count=1 -v .
+          go vet .
+      - name: Enforce safe dependency boundary
+        run: |
+          if grep -nE '"(database/sql|os/exec|net|net/http|syscall|unsafe)"' internal/basketmerge/*.go; then
+            echo "Forbidden dependency in isolated Smart Basket Merge"
+            exit 1
+          fi
