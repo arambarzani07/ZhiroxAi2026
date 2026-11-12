@@ -34,8 +34,8 @@ func TestDuplicateScanIDIgnored(t *testing.T){
 func TestFiveHeldTicketsRemainSeparate(t *testing.T){
  s:=session(t,"1","2","3","4","5")
  s=apply(t,s,scan("e1","1"),Added)
- s=apply(t,s,scan("e1","2"),Added)
- s=apply(t,s,scan("e2","1"),Merged)
+ s=apply(t,s,scan("e2","2"),Added)
+ s=apply(t,s,scan("e3","1"),Merged)
  if s.Tickets[0].Lines[0].Quantity!=2||s.Tickets[1].Lines[0].Quantity!=1||len(s.Tickets[2].Lines)!=0 {t.Fatal("tickets are not isolated")}
  if _,err:=NewSession("1","2","3","4","5","6");err==nil {t.Fatal("six tickets allowed")}
 }
@@ -88,4 +88,14 @@ func TestTotalOverflowRejected(t *testing.T) {
  y:=scan("e2","T1");y.Barcode="other";y.UnitPriceIQD=42
  got,_,err:=ApplyScan(s,y)
  if err==nil||len(got.Tickets[0].Lines)!=1 {t.Fatal("accepted overflow")}
+}
+
+func TestGlobalScanEventDedupeAcrossTickets(t *testing.T){
+ s:=session(t,"T1","T2")
+ s=apply(t,s,scan("event-001","T1"),Added)
+ // A late retry after customer/ticket switch must never create a charge.
+ s=apply(t,s,scan("event-001","T2"),AlreadyProcessed)
+ if len(s.Tickets[1].Lines)!=0 {t.Fatal("duplicate physical scan charged other customer")}
+ s=apply(t,s,scan("event-002","T2"),Added)
+ if len(s.Tickets[0].Lines)!=1||len(s.Tickets[1].Lines)!=1 {t.Fatal("new physical event did not reach separate ticket")}
 }
