@@ -1,0 +1,137 @@
+name: Validate restricted Cashierynwe signing capability (NO DEPLOY)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/pc_os_cashierynwe_sign.go'
+      - 'src/pc_os_cashierynwe_sign_policy.go'
+      - 'src/pc_os_cashierynwe_sign_policy_test.go'
+      - 'tools/patch_cashierynwe_sign_relay.py'
+      - 'ops/supabase/zhirox-pc-relay-v21-cashierynwe-sign.ts'
+      - '.github/workflows/validate-cashierynwe-one-shot-relay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-v516:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Policy tests
+        run: |
+          set -euo pipefail
+          go test src/pc_os_watchdog_policy_v512.go src/pc_os_watchdog_policy_v512_test.go
+          go test src/pc_os_screen_observability.go src/pc_os_screen_observability_test.go
+          go test src/pc_os_cashierynwe_sign_policy.go src/pc_os_cashierynwe_sign_policy_test.go
+
+      - name: Restore and harden Supervisor source through v5.1.6
+        run: |
+          set -euo pipefail
+          mkdir -p buildsrc channel-v516
+          cat source-v5.0.1.part001 source-v5.0.1.part002 source-v5.0.1.part003 | base64 -d > /tmp/zhirox-source.tar.gz
+          tar -xzf /tmp/zhirox-source.tar.gz -C buildsrc
+          python3 tools/patch_downloader_v503.py
+          python3 tools/patch_v505.py
+          python3 tools/patch_v506.py
+          python3 tools/patch_v507.py
+          python3 tools/patch_v508.py
+          python3 tools/patch_v509.py
+          cp src/pc_os_v510.go buildsrc/pc_os_v510.go
+          cp src/pc_os_cloud_v510.go buildsrc/pc_os_cloud_v510.go
+          cp src/pc_os_windows_v510.go buildsrc/pc_os_windows_v510.go
+          cp src/pc_os_backup_policy_v510.go buildsrc/pc_os_backup_policy_v510.go
+          cp src/pc_os_backup_v510_windows.go buildsrc/pc_os_backup_v510_windows.go
+          cp src/pc_os_update_enforce_v510.go buildsrc/pc_os_update_enforce_v510.go
+          cp src/pc_os_self_updater_v510_windows.go buildsrc/pc_os_self_updater_v510_windows.go
+          cp src/update_trust_v510.go buildsrc/update_trust_v510.go
+          python3 tools/patch_v510.py
+          python3 tools/patch_trust_v510.py
+          python3 tools/patch_self_updater_v510.py
+          cp src/pc_os_recovery_v511_windows.go buildsrc/pc_os_recovery_v511_windows.go
+          python3 tools/patch_v511.py
+          cp src/pc_os_watchdog_policy_v512.go buildsrc/pc_os_watchdog_policy_v512.go
+          cp src/pc_os_watchdog_v512_windows.go buildsrc/pc_os_watchdog_v512_windows.go
+          python3 tools/patch_v512.py
+          cp src/pc_os_screen_observability.go buildsrc/pc_os_screen_observability.go
+          cp src/pc_os_screen_observability_windows.go buildsrc/pc_os_screen_observability_windows.go
+          python3 tools/patch_screen_observability_v1.py
+          python3 tools/patch_v514.py
+          python3 tools/patch_screen_observability_gdi_v515.py
+          python3 tools/patch_v515.py
+          python3 tools/patch_screen_observability_dib_v516.py
+          python3 tools/patch_v516_compilefix.py
+          python3 tools/patch_v516.py
+          cp src/pc_os_cashierynwe_sign.go buildsrc/pc_os_cashierynwe_sign.go
+          cp src/pc_os_cashierynwe_sign_policy.go buildsrc/pc_os_cashierynwe_sign_policy.go
+          python3 tools/patch_cashierynwe_sign_relay.py
+          NEXT="$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex | tr 'A-F' 'a-f')"
+          [[ "$NEXT" =~ ^[0-9a-f]{64}$ ]]
+          test "$NEXT" = '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
+          printf 'package main\n\nconst pcOSPinnedUpdatePublicKeyHex = "%s"\n' "$NEXT" > buildsrc/update_trust_v510.go
+          gofmt -w buildsrc/*.go
+
+      - name: Safety invariants
+        run: |
+          set -euo pipefail
+          grep -q '5.1.6' buildsrc/main.go
+          grep -q 'const pcOSVersion = "5.1.6"' buildsrc/pc_os_v510.go
+          grep -q 'pcOSZeroTouchWatchdogEnsureLoop' buildsrc/main.go
+          grep -q 'pc_os_active_window' buildsrc/main.go
+          grep -q 'pc_os_screenshot' buildsrc/main.go
+          grep -q 'screen_observability_read_only' buildsrc/pc_os_v510.go
+          grep -q 'pcOSCreateDIBSection' buildsrc/pc_os_screen_observability_windows.go
+          grep -q 'pcOSGDIFlush' buildsrc/pc_os_screen_observability_windows.go
+          grep -q 'var bits unsafe.Pointer' buildsrc/pc_os_screen_observability_windows.go
+          grep -Fq 'unsafe.Slice((*byte)(bits), w*h*4)' buildsrc/pc_os_screen_observability_windows.go
+          if grep -q 'pcOSGetDIBits.Call' buildsrc/pc_os_screen_observability_windows.go; then
+            echo 'GetDIBits call must not remain in v5.1.6 capture path.' >&2
+            exit 1
+          fi
+          if grep -Eqi 'cmd\.exe|powershell\.exe|SendInput|mouse_event|keybd_event|OpenClipboard|GetClipboardData|SetClipboardData|waveInOpen|capCreateCaptureWindow' buildsrc/pc_os_screen_observability_windows.go; then
+            echo 'Screen observability must remain read-only.' >&2
+            exit 1
+          fi
+          grep -q 'pcOSPinnedUpdatePublicKeyHex = "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143"' buildsrc/update_trust_v510.go
+
+      - name: Windows compile check
+        working-directory: buildsrc
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel-v516/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go pc_os_screen_observability.go pc_os_screen_observability_windows.go pc_os_cashierynwe_sign.go pc_os_cashierynwe_sign_policy.go update_trust_v510.go
+
+      - name: Fail closed — validate typed signer and never publish agent or PFX
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f channel-v516/ZhiroxAISupervisor.exe
+          grep -q 'case "cashierynwe_sign_release":' buildsrc/main.go
+          grep -q 'case "cashierynwe_sign_status":' buildsrc/main.go
+          grep -q 'approved_main_commit_mismatch' buildsrc/pc_os_cashierynwe_sign.go
+          grep -q 'local_sign_or_publish_failed' buildsrc/pc_os_cashierynwe_sign.go
+          ! grep -Eq 'owner_exec_enabled": true|arbitrary_shell": true' buildsrc/main.go
+          ! grep -Eq 'exec.Command\("cmd.exe"|exec.Command\("powershell.exe"' buildsrc/pc_os_cashierynwe_sign.go
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("ops/supabase/zhirox-pc-relay-v21-cashierynwe-sign.ts").read_text()
+          block=s[s.index('if (action === "cashierynwe_sign_release")'):]
+          assert 'relay_agent_signer_not_installed' in block
+          assert 'one_time_exact_args_approval_required' in block
+          assert 'enqueue_approved_pc_relay_command' in block
+          assert 'versionAtLeast(String(agent.version || ""), "5.1.14")' in block
+          assert 'SIGN_CASHIERYNWE_V1_0_1_ON_OWNER_PC' in block
+          assert 'cashierynwe_sign_status' in s
+          assert 'owner_exec' not in block
+          PY
+          echo 'CANDIDATE_BUILT_ONLY. NO RELEASE OR LIVE AGENT UPDATE.'
