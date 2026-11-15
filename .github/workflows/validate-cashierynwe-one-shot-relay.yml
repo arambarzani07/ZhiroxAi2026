@@ -130,8 +130,17 @@ jobs:
           assert 'one_time_exact_args_approval_required' in block
           assert 'enqueue_approved_pc_relay_command' in block
           assert 'versionAtLeast(String(agent.version || ""), "5.1.14")' in block
-          assert 'SIGN_CASHIERYNWE_V1_0_1_ON_OWNER_PC' in block
+          assert 'Object.keys(args).sort().join(",") !== "approval_id,commit_sha,tag"' in block
+          assert 'approvalId.toLowerCase() !== args.approval_id.toLowerCase()' in block
+          assert 'SIGN_CASHIERYNWE_V1_0_1_ON_OWNER_PC' not in block
           assert 'cashierynwe_sign_status' in s
+          go = Path("buildsrc/pc_os_cashierynwe_sign.go").read_text()
+          for arg in ('"-ExpectedTag", cashierynweApprovedTag', '"-RelayApprovalId", approvalID', '"-ExpectedCommit", commit'):
+              assert arg in go
+          assert "cashierynweExecuteSignedRelease(commit, approvalID)" in go
+          args = Path("buildsrc/pc_os_cashierynwe_sign_policy.go").read_text()
+          assert 'args["tag"]' in args and 'args["commit_sha"]' in args and 'args["approval_id"]' in args
+          assert 'approval_phrase' not in args
           assert 'owner_exec' not in block
           PY
           echo 'CANDIDATE_BUILT_ONLY. NO RELEASE OR LIVE AGENT UPDATE.'

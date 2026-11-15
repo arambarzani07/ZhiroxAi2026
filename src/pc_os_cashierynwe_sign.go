@@ -44,7 +44,7 @@ func pcOSCashierynweSignStatus() (interface{}, error) {
 }
 
 func pcOSCashierynweSignRelease(args map[string]interface{}) (interface{}, error) {
-	commit, err := cashierynweValidateSignArgs(args)
+	commit, approvalID, err := cashierynweValidateSignArgs(args)
 	if err != nil { return nil, err }
 	cashierynweSignLock.Lock()
 	if cashierynweSignState.Running {
@@ -62,7 +62,7 @@ func pcOSCashierynweSignRelease(args map[string]interface{}) (interface{}, error
 	// Return before the Relay's bounded response timeout. Read completion via
 	// the read-only cashierynwe_sign_status action; never return build logs/tokens.
 	go func() {
-		err := cashierynweExecuteSignedRelease(commit)
+		err := cashierynweExecuteSignedRelease(commit, approvalID)
 		cashierynweSignLock.Lock()
 		defer cashierynweSignLock.Unlock()
 		cashierynweSignState.Running = false
@@ -86,7 +86,7 @@ func pcOSCashierynweSignRelease(args map[string]interface{}) (interface{}, error
 	}, nil
 }
 
-func cashierynweExecuteSignedRelease(commit string) error {
+func cashierynweExecuteSignedRelease(commit, approvalID string) error {
 	// Require same logged-in Windows user that owns the signing certificate,
 	// GitHub CLI credentials, and private Cashierynwe source checkout.
 	profile := os.Getenv("USERPROFILE")
@@ -130,7 +130,9 @@ func cashierynweExecuteSignedRelease(commit string) error {
 	script, err := gitOutput("show", commit + ":" + cashierynweScriptGitPath)
 	if err != nil || len(script) < 1000 ||
 		!strings.Contains(script, "[switch]$UseWindowsCertificateStore") ||
-		!strings.Contains(script, "[string]$ExpectedCommit") {
+		!strings.Contains(script, "[string]$ExpectedCommit") ||
+		!strings.Contains(script, "[string]$ExpectedTag") ||
+		!strings.Contains(script, "[string]$RelayApprovalId") {
 		return errors.New("approved_signer_script_missing")
 	}
 	tmp, err := os.MkdirTemp("", "zhirox-cashierynwe-sign-")
@@ -144,6 +146,7 @@ func cashierynweExecuteSignedRelease(commit string) error {
 	cmd := hiddenCommandContext(ctx, psExe,
 		"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned",
 		"-File", scriptPath, "-UseWindowsCertificateStore", "-ExpectedCommit", commit,
+		"-ExpectedTag", cashierynweApprovedTag, "-RelayApprovalId", approvalID,
 	)
 	cmd.Dir = root
 	// SECURITY: Do not capture stdout/stderr from signing or GitHub CLI.
