@@ -17,7 +17,7 @@ class ExactReleaseSignerPolicy(unittest.TestCase):
             "r.source_commit IS DISTINCT FROM '091c7e23ee50807a5c721a45c7b1c7c2267695c0'",
             "r.sha256 IS DISTINCT FROM '371394e3e31351929c122eea95ad926aec8a5d8316b347f25ec47f0b3d80f7fa'",
             "r.size_bytes IS DISTINCT FROM 20025856",
-            "'v5.1.14-candidate-091c7e23/ZhiroxAISupervisor.exe'",
+            "'https://github.com/arambarzani07/ZhiroxAi2026/releases/download/v5.1.14-candidate-091c7e23/ZhiroxAISupervisor.exe'",
             "'43708666560'",
             "'14159935571'",
         ):
