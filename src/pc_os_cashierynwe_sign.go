@@ -127,7 +127,8 @@ func cashierynweExecuteSignedRelease(commit string) error {
 	if err != nil { return errors.New("signer_temp_dir_failed") }
 	defer os.RemoveAll(tmp)
 	scriptPath := filepath.Join(tmp, "approved-cashierynwe-sign.ps1")
-	if err := os.WriteFile(scriptPath, []byte(script), 0600); err != nil {
+	// Windows PowerShell 5.1 requires a BOM to interpret Sorani text as UTF-8.
+	if err := os.WriteFile(scriptPath, append([]byte{0xEF, 0xBB, 0xBF}, []byte(script)...), 0600); err != nil {
 		return errors.New("signer_temp_file_failed")
 	}
 	cmd := hiddenCommandContext(ctx, psExe,
