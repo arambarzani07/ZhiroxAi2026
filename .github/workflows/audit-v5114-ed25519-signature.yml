@@ -1,0 +1,38 @@
+name: Audit immutable v5.1.14 Ed25519 signature gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/verify-v5114-signature.mjs'
+      - 'tools/verify-v5114-signature.test.mjs'
+      - '.github/workflows/audit-v5114-ed25519-signature.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/verify-v5114-signature.mjs'
+      - 'tools/verify-v5114-signature.test.mjs'
+      - '.github/workflows/audit-v5114-ed25519-signature.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    name: Pure Ed25519 gate / no private key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test positive and fail-closed signature cases
+        run: node --test tools/verify-v5114-signature.test.mjs
+      - name: Refuse live candidate without detached signature
+        run: |
+          if node tools/verify-v5114-signature.mjs --manifest release-candidates/v5.1.14/manifest.json --binary missing.exe --signature missing.b64; then
+            echo 'FAIL: missing signed candidate was accepted'
+            exit 1
+          fi
+          echo 'PASS: unsigned candidate cannot be approved for release'
