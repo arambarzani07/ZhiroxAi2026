@@ -1,6 +1,10 @@
 name: Publish VERIFIED v5.1.14 relay prerelease transport (NO PRODUCTION DEPLOY)
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v5114-exact-transport.yml'
   push:
     branches: [main]
     paths:
@@ -19,8 +23,33 @@ env:
   RELEASE_TAG: 'v5.1.14-candidate-091c7e23'
 
 jobs:
+  verify-no-deploy-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify immutable manifest and reject production claims (read only)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          m=json.loads(Path('release-candidates/v5.1.14/manifest.json').read_text())
+          assert m['source_commit']==os.environ['SOURCE_HEAD_SHA']
+          assert m['sha256']==os.environ['EXE_SHA256']
+          assert m['size_bytes']==int(os.environ['EXE_SIZE'])
+          assert m['workflow_run_id']==int(os.environ['SOURCE_RUN'])
+          assert m['artifact_name']==os.environ['ARTIFACT_NAME']
+          assert m['publishable'] is False and m['rollout_allowed'] is False
+          assert m['signature_b64'] is None
+          assert m['signing_algorithm']=='Ed25519'
+          assert m['canonical_signing_message']=='5.1.14|'+os.environ['EXE_SHA256']+'|'+os.environ['EXE_SIZE']
+          assert m['blocked_reasons']
+          PY
   publish-unsigned-candidate:
-    if: github.repository == 'arambarzani07/ZhiroxAi2026'
+    needs: verify-no-deploy-contract
+    if: github.event_name == 'push' && github.repository == 'arambarzani07/ZhiroxAi2026'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
