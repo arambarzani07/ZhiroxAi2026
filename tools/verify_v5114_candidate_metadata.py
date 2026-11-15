@@ -40,7 +40,8 @@ def verify_candidate(directory: Path, expected_source_commit: str) -> dict:
     request = _read_json(root / "signing-request.json")
     executable = root / "ZhiroxAISupervisor.exe"
     require(executable.is_file() and not executable.is_symlink(), "executable_missing_or_linked")
-    actual_sha = hashlib.file_digest(executable.open("rb"), "sha256").hexdigest()
+    with executable.open("rb") as stream:
+        actual_sha = hashlib.file_digest(stream, "sha256").hexdigest()
     actual_size = executable.stat().st_size
     require(actual_size > 1024 * 1024, "executable_unreasonably_small")
 
