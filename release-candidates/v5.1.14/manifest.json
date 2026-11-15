@@ -1,0 +1,31 @@
+{
+  "version": "5.1.14",
+  "candidate_kind": "unsigned_windows_relay",
+  "status": "build_verified_signing_pending",
+  "publishable": false,
+  "live_update_channel_unchanged": true,
+  "source_commit": "091c7e23ee50807a5c721a45c7b1c7c2267695c0",
+  "inherited_signed_baseline_commit": "46b208507293d677428a25b146599eb537c532b9",
+  "workflow_run_id": 43708666560,
+  "workflow_artifact_id": 14159935571,
+  "artifact_name": "Zhirox-PC-OS-v5.1.14-091c7e23ee50807a5c721a45c7b1c7c2267695c0",
+  "filename": "ZhiroxAISupervisor.exe",
+  "sha256": "371394e3e31351929c122eea95ad926aec8a5d8316b347f25ec47f0b3d80f7fa",
+  "size_bytes": 20025856,
+  "signing_algorithm": "Ed25519",
+  "pinned_update_public_key_hex": "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143",
+  "canonical_signing_message": "5.1.14|371394e3e31351929c122eea95ad926aec8a5d8316b347f25ec47f0b3d80f7fa|20025856",
+  "signature_b64": null,
+  "windows_ci_passed": true,
+  "candidate_provenance_verified": true,
+  "private_signing_key_exported": false,
+  "production_agent_expected_before_rollout": "5.1.13",
+  "rollout_allowed": false,
+  "blocked_reasons": [
+    "exact_artifact_ed25519_signature_not_created",
+    "durable_authenticated_artifact_transport_not_staged",
+    "one_time_owner_approval_and_canary_rollback_not_verified",
+    "windows_user_currentuser_certificate_and_github_cli_context_not_verified"
+  ],
+  "note": "This public JSON is a nondeployable release audit record; it does not authorize signing, publishing, Supabase writes, remote PC commands or live update channel changes."
+}
