@@ -152,8 +152,20 @@ func signExactBinary(exePath, outFile, encodedSeed string) error {
 	if err != nil {
 		return errors.New("proof_serialization_failed")
 	}
-	if err := os.WriteFile(outFile, append(data, '\n'), 0600); err != nil {
+	// O_EXCL also prevents a concurrent attacker replacing the absent output
+	// path with a symlink between the check and the create operation.
+	out, err := os.OpenFile(outFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return errors.New("proof_create_failed")
+	}
+	if _, err := out.Write(append(data, '\n')); err != nil {
+		out.Close()
+		os.Remove(outFile)
 		return errors.New("proof_write_failed")
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(outFile)
+		return errors.New("proof_close_failed")
 	}
 	return nil
 }
