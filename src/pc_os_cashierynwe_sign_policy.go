@@ -9,7 +9,7 @@ const cashierynweApprovedTag = "v1.0.1"
 
 var (
 	cashierynweHexCommit = regexp.MustCompile("^[a-f0-9]{40}$")
-	cashierynweApprovalUUID = regexp.MustCompile("^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
+	cashierynweApprovalUUID = regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
 )
 
 // This is NOT itself an approval verifier. The privileged Supabase RPC must
