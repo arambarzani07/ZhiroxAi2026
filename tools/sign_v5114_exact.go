@@ -186,8 +186,13 @@ func verifyExactProof(exePath, proofFile string) error {
 		return errors.New("proof_unreadable")
 	}
 	var proof signedProof
-	if err := json.Unmarshal(b, &proof); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(string(b)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&proof); err != nil {
 		return errors.New("proof_json_invalid")
+	}
+	if err := decoder.Decode(new(interface{})); err != io.EOF {
+		return errors.New("proof_json_trailing_data")
 	}
 	sig, err := base64.StdEncoding.Strict().DecodeString(proof.SignatureB64)
 	if err != nil || len(sig) != ed25519.SignatureSize {
