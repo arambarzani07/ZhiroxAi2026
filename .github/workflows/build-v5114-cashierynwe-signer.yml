@@ -105,6 +105,13 @@ jobs:
           git diff --exit-code -- go.mod
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Verify exact typed signer policy (no shell/PFX arguments)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ../src/pc_os_cashierynwe_sign_policy.go ../src/pc_os_cashierynwe_sign_policy_test.go
+          if ($LASTEXITCODE -ne 0) { throw 'Typed signer policy regression' }
+
       - name: Restore Supervisor source through v5.1.6
         shell: pwsh
         run: |
@@ -173,13 +180,13 @@ jobs:
           $next = (Get-Content 'release-gates\v5.1.1-next-public-key.hex' -Raw).Trim().ToLowerInvariant()
           if ($next -ne '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143') { throw 'pinned update key mismatch' }
           "package main`n`nconst pcOSPinnedUpdatePublicKeyHex = `"$next`"`n" | Set-Content -Encoding UTF8 'buildsrc\update_trust_v510.go'
-          # Overlay ONLY the approved fixed-action signer onto complete v5.1.14 source.
+          # Overlay ONLY the approved fixed-action signer onto complete v5.1.13 source.
           Copy-Item '../src/pc_os_cashierynwe_sign.go' 'buildsrc/pc_os_cashierynwe_sign.go'
           Copy-Item '../src/pc_os_cashierynwe_sign_policy.go' 'buildsrc/pc_os_cashierynwe_sign_policy.go'
           python ../tools/patch_cashierynwe_sign_relay.py
           if ($LASTEXITCODE -ne 0) { throw 'Strict signer action injection failed' }
           python ../tools/patch_v5114_cashierynwe_signer.py
-          if ($LASTEXITCODE -ne 0) { throw 'Full v5.1.14 retention gate failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Full v5.1.13 retention gate failed' }
           Get-ChildItem 'buildsrc' -Filter '*.go' | ForEach-Object { gofmt -w $_.FullName }
 
       - name: v5.1.14 safety invariants
@@ -191,8 +198,8 @@ jobs:
           $canary = Get-Content 'buildsrc\pc_os_remote_canary_v517_windows.go' -Raw
           $bootstrap = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\bootstrap_windows.go' -Raw
           $input = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
-          if ($main -notmatch '5\.1\.13') { throw 'runtime version 5.1.12 missing' }
-          if ($pc -notmatch 'const pcOSVersion = "5\.1\.13"') { throw 'pcOSVersion 5.1.12 missing' }
+          if ($main -notmatch '5\.1\.14') { throw 'runtime version 5.1.14 missing' }
+          if ($pc -notmatch 'const pcOSVersion = "5\.1\.14"') { throw 'pcOSVersion 5.1.14 missing' }
           if ($main -notmatch 'pc_os_itemname_probe' -or $main -notmatch 'pc_os_itemname_status') { throw 'ItemName routes missing' }
           if ($main -notmatch 'pc_os_sql_compare_v2') { throw 'Read-only SQLCMD comparison route missing' }
           $sqlargs = Get-Content 'buildsrc/pc_os_itemname_sqlargs_v518.go' -Raw
