@@ -110,7 +110,13 @@ func cashierynweExecuteSignedRelease(commit, approvalID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	gitOutput := func(args ...string) (string, error) {
-		cmd := hiddenCommandContext(ctx, gitExe, append([]string{"-C", root}, args...)...)
+		// Bound every Git operation independently so missing credentials/network
+		// cannot leave a hidden process waiting for the entire release window.
+		gitCtx, gitCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer gitCancel()
+		cmd := hiddenCommandContext(gitCtx, gitExe,
+			append([]string{"-c", "core.askPass=", "-c", "credential.interactive=false", "-C", root}, args...)...)
+		cmd.Env = cashierynweHeadlessEnv(os.Environ())
 		out, err := cmd.Output()
 		if err != nil || len(out) > 65536 { return "", errors.New("git_preflight_failed") }
 		return strings.TrimSpace(string(out)), nil
@@ -149,6 +155,7 @@ func cashierynweExecuteSignedRelease(commit, approvalID string) error {
 		"-ExpectedTag", cashierynweApprovedTag, "-RelayApprovalId", approvalID,
 	)
 	cmd.Dir = root
+	cmd.Env = cashierynweHeadlessEnv(os.Environ())
 	// SECURITY: Do not capture stdout/stderr from signing or GitHub CLI.
 	// The legacy market Admin.exe/Cashier.exe and their databases are untouched.
 	if err := cmd.Run(); err != nil { return errors.New("local_sign_or_publish_failed") }

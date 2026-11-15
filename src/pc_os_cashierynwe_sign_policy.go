@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"regexp"
+	"strings"
 )
 
 const cashierynweApprovedTag = "v1.0.1"
@@ -31,4 +32,32 @@ func cashierynweValidateSignArgs(args map[string]interface{}) (string, string, e
 		return "", "", errors.New("sign_args_rejected")
 	}
 	return commit, approvalID, nil
+}
+
+// cashierynweHeadlessEnv overrides inherited interactive credential helpers.
+// The approved Windows agent must never display a Git, GCM or GitHub login
+// dialog while signing. Missing stored credentials cause a failed operation.
+func cashierynweHeadlessEnv(base []string) []string {
+	pinned := []string{
+		"CI=true",
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=0",
+		"GCM_GUI_PROMPT=0",
+		"GH_PROMPT_DISABLED=1",
+		"GIT_ASKPASS=",
+		"SSH_ASKPASS=",
+	}
+	blocked := make(map[string]bool, len(pinned))
+	for _, item := range pinned {
+		blocked[strings.ToUpper(strings.SplitN(item, "=", 2)[0])] = true
+	}
+	result := make([]string, 0, len(base)+len(pinned))
+	for _, item := range base {
+		parts := strings.SplitN(item, "=", 2)
+		if len(parts) != 2 || blocked[strings.ToUpper(parts[0])] {
+			continue
+		}
+		result = append(result, item)
+	}
+	return append(result, pinned...)
 }
