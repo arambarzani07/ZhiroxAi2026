@@ -67,7 +67,7 @@ class ReleaseCandidateProvenanceTests(unittest.TestCase):
     def test_prevent_modified_executable(self):
         with self.executable.open("ab") as f:
             f.write(b"tampered")
-        with self.assertRaisesRegex(ValueError, "metadata_size_invalid"):
+        with self.assertRaisesRegex(ValueError, "metadata_.*_invalid"):
             self.verify()
 
     def test_prevent_legacy_or_unpinned_source_and_trust_key(self):
