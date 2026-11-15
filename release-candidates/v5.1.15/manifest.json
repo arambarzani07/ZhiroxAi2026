@@ -1,0 +1,31 @@
+{
+  "version": "5.1.15",
+  "candidate_kind": "unsigned_windows_relay",
+  "status": "build_verified_signing_pending",
+  "publishable": false,
+  "live_update_channel_unchanged": true,
+  "source_commit": "7185cd9625511eb48cb2974c5ed9920662d7150a",
+  "inherited_signed_baseline_commit": "46b208507293d677428a25b146599eb537c532b9",
+  "workflow_run_id": 43721853659,
+  "workflow_artifact_id": 14165021306,
+  "artifact_name": "Zhirox-PC-OS-v5.1.15-7185cd9625511eb48cb2974c5ed9920662d7150a",
+  "filename": "ZhiroxAISupervisor.exe",
+  "sha256": "74cffc3eafab23cdead7b7d25df65cdb8d950ca0774a6b55f7d4c6a3dc21048b",
+  "size_bytes": 20027904,
+  "signing_algorithm": "Ed25519",
+  "pinned_update_public_key_hex": "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143",
+  "canonical_signing_message": "5.1.15|74cffc3eafab23cdead7b7d25df65cdb8d950ca0774a6b55f7d4c6a3dc21048b|20027904",
+  "signature_b64": null,
+  "windows_ci_passed": true,
+  "candidate_provenance_verified": true,
+  "private_signing_key_exported": false,
+  "production_agent_expected_before_rollout": "5.1.13",
+  "rollout_allowed": false,
+  "blocked_reasons": [
+    "exact_v5115_ed25519_signature_not_created",
+    "trusted_authenticated_production_artifact_transport_not_staged",
+    "single_use_owner_approval_and_on_device_canary_rollback_not_verified",
+    "windows_cert_store_and_github_cli_identity_not_verified"
+  ],
+  "note": "Publicly accessible GitHub prerelease is UNSIGNED and DO NOT INSTALL. This candidate cannot become the live PC update channel or production update without independent signature, exact approval and verified on-device rollback."
+}
