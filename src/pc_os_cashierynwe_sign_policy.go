@@ -5,27 +5,30 @@ import (
 	"regexp"
 )
 
-const (
-	cashierynweApprovedTag = "v1.0.1"
-	cashierynweApprovedPhrase = "SIGN_CASHIERYNWE_V1_0_1_ON_OWNER_PC"
+const cashierynweApprovedTag = "v1.0.1"
+
+var (
+	cashierynweHexCommit = regexp.MustCompile("^[a-f0-9]{40}$")
+	cashierynweApprovalUUID = regexp.MustCompile("^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
 )
 
-var cashierynweHexCommit = regexp.MustCompile("^[a-f0-9]{40}$")
-
-// Reject unexpected arguments, including all caller-supplied paths, shell text,
-// GitHub hosts, PFX locations, passwords, and replacement version numbers.
-// Cloud also requires an authenticated one-time exact-args approval.
-func cashierynweValidateSignArgs(args map[string]interface{}) (string, error) {
+// This is NOT itself an approval verifier. The privileged Supabase RPC must
+// atomically consume the owner approval and bind it to this exact command
+// before the relay is allowed to receive it. The local script pins the same
+// approved SHA, tag and one-time approval identifier.
+// Refuse all extra fields, including any executable, script, path, shell
+// command, secret or PFX supplied by a remote caller.
+func cashierynweValidateSignArgs(args map[string]interface{}) (string, string, error) {
 	if len(args) != 3 {
-		return "", errors.New("sign_args_not_exact")
+		return "", "", errors.New("sign_args_not_exact")
 	}
-	tag, _ := args["release_tag"].(string)
-	commit, _ := args["approved_main_commit"].(string)
-	phrase, _ := args["approval_phrase"].(string)
+	tag, _ := args["tag"].(string)
+	commit, _ := args["commit_sha"].(string)
+	approvalID, _ := args["approval_id"].(string)
 	if tag != cashierynweApprovedTag ||
-		phrase != cashierynweApprovedPhrase ||
-		!cashierynweHexCommit.MatchString(commit) {
-		return "", errors.New("sign_args_rejected")
+		!cashierynweHexCommit.MatchString(commit) ||
+		!cashierynweApprovalUUID.MatchString(approvalID) {
+		return "", "", errors.New("sign_args_rejected")
 	}
-	return commit, nil
+	return commit, approvalID, nil
 }
