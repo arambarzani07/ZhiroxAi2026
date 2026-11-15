@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'src/pc_os_cashierynwe_sign.go'
+      - 'src/pc_os_cashierynwe_sign_policy.go'
+      - 'src/pc_os_cashierynwe_sign_policy_test.go'
       - 'tools/patch_cashierynwe_sign_relay.py'
       - 'ops/supabase/zhirox-pc-relay-v21-cashierynwe-sign.ts'
       - '.github/workflows/validate-cashierynwe-one-shot-relay.yml'
@@ -27,6 +29,7 @@ jobs:
           set -euo pipefail
           go test src/pc_os_watchdog_policy_v512.go src/pc_os_watchdog_policy_v512_test.go
           go test src/pc_os_screen_observability.go src/pc_os_screen_observability_test.go
+          go test src/pc_os_cashierynwe_sign_policy.go src/pc_os_cashierynwe_sign_policy_test.go
 
       - name: Restore and harden Supervisor source through v5.1.6
         run: |
@@ -66,6 +69,7 @@ jobs:
           python3 tools/patch_v516_compilefix.py
           python3 tools/patch_v516.py
           cp src/pc_os_cashierynwe_sign.go buildsrc/pc_os_cashierynwe_sign.go
+          cp src/pc_os_cashierynwe_sign_policy.go buildsrc/pc_os_cashierynwe_sign_policy.go
           python3 tools/patch_cashierynwe_sign_relay.py
           NEXT="$(tr -d '[:space:]' < release-gates/v5.1.1-next-public-key.hex | tr 'A-F' 'a-f')"
           [[ "$NEXT" =~ ^[0-9a-f]{64}$ ]]
@@ -105,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           go vet ./...
-          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel-v516/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go pc_os_screen_observability.go pc_os_screen_observability_windows.go pc_os_cashierynwe_sign.go update_trust_v510.go
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ../channel-v516/ZhiroxAISupervisor.exe main.go admin_actions_v48.go owner_actions.go hash_v48.go pc_os_v510.go pc_os_cloud_v510.go pc_os_windows_v510.go pc_os_backup_policy_v510.go pc_os_backup_v510_windows.go pc_os_update_enforce_v510.go pc_os_self_updater_v510_windows.go pc_os_recovery_v511_windows.go pc_os_watchdog_policy_v512.go pc_os_watchdog_v512_windows.go pc_os_screen_observability.go pc_os_screen_observability_windows.go pc_os_cashierynwe_sign.go pc_os_cashierynwe_sign_policy.go update_trust_v510.go
 
       - name: Fail closed — validate typed signer and never publish agent or PFX
         shell: bash
