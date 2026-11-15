@@ -1,0 +1,24 @@
+name: Validate exact v5.1.14 Vault signing policy (NO SIGN/DEPLOY)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/supabase/zhirox_sign_v5114_exact_release.sql'
+      - 'tools/test_zhirox_sign_v5114_sql.py'
+      - '.github/workflows/validate-v5114-vault-signer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-static-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signer has exact artifact pins, no promotion, scoped grants
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools -p 'test_zhirox_sign_v5114_sql.py' -v
+          echo 'STATIC POLICY PASS. NO VAULT KEY ACCESSED; NO SUPABASE WRITE.'
