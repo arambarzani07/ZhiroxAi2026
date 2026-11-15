@@ -64,7 +64,7 @@ func TestUntrustedFileCannotBeSignedWithoutReadingKey(t *testing.T) {
 }
 
 func TestCurrentManifestStillExplicitlyBlocksUnsignedRelease(t *testing.T) {
-	manifestPath := filepath.Join("release-candidates", "v5.1.14", "manifest.json")
+	manifestPath := filepath.Join("..", "release-candidates", "v5.1.14", "manifest.json")
 	b, err := os.ReadFile(manifestPath)
 	if err != nil { t.Fatal(err) }
 	var data struct {
