@@ -113,7 +113,7 @@ const READ_ACTIONS = new Set([
   "windows_update_status", "full_snapshot", "find_system", "capabilities", "app_status",
   "file_hash", "read_text", "search_files", "list_files", "storage_scan", "env_get",
   "firewall_rules", "printers", "registry_get", "timezone_info", "network",
-  "remote_actions_info", "binary_phrase_probe",
+  "remote_actions_info", "binary_phrase_probe", "cashierynwe_sign_status",
 ]);
 const PC_OS_READ_ACTIONS = new Set([
   "pc_os_overview", "pc_os_modules", "pc_os_guardian", "pc_os_backup", "pc_os_backup_readiness",
