@@ -9,44 +9,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	cashierynweApprovedTag = "v1.0.1"
-	cashierynweApprovedPhrase = "SIGN_CASHIERYNWE_V1_0_1_ON_OWNER_PC"
 	cashierynweRemote = "https://github.com/arambarzani07/Cashierynwe.git"
 	cashierynweScriptGitPath = "scripts/windows/publish-local-signed-release.ps1"
 )
-
-var cashierynweHexCommit = regexp.MustCompile("^[a-f0-9]{40}$")
-var cashierynweSignLock sync.Mutex
-var cashierynweSignState = struct {
-	Running bool
-	State string
-	Started string
-	Finished string
-	Commit string
-	ErrorCode string
-}{State: "idle"}
-
-func cashierynweValidateSignArgs(args map[string]interface{}) (string, error) {
-	if len(args) != 3 {
-		return "", errors.New("sign_args_not_exact")
-	}
-	tag, _ := args["release_tag"].(string)
-	commit, _ := args["approved_main_commit"].(string)
-	phrase, _ := args["approval_phrase"].(string)
-	if tag != cashierynweApprovedTag ||
-		phrase != cashierynweApprovedPhrase ||
-		!cashierynweHexCommit.MatchString(commit) {
-		return "", errors.New("sign_args_rejected")
-	}
-	return commit, nil
-}
 
 func pcOSCashierynweSignStatus() (interface{}, error) {
 	cashierynweSignLock.Lock()
