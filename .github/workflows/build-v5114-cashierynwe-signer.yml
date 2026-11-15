@@ -11,6 +11,7 @@ on:
       - 'tools/patch_cashierynwe_sign_relay.py'
       - 'tools/patch_v5114_cashierynwe_signer.py'
       - 'tools/verify_v5114_candidate_metadata.py'
+      - 'tools/test_verify_v5114_candidate_metadata.py'
   pull_request:
     branches: [main]
     paths:
@@ -21,6 +22,7 @@ on:
       - 'tools/patch_cashierynwe_sign_relay.py'
       - 'tools/patch_v5114_cashierynwe_signer.py'
       - 'tools/verify_v5114_candidate_metadata.py'
+      - 'tools/test_verify_v5114_candidate_metadata.py'
   workflow_dispatch:
 
 permissions:
@@ -49,6 +51,13 @@ jobs:
         with:
           go-version: '1.24.x'
           cache: false
+
+      - name: Unit-test artifact integrity / no premature publishing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s ../tools -p 'test_verify_v5114_candidate_metadata.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Unsigned release gate regression failed' }
 
       - name: Verify exact source checkout
         shell: pwsh
