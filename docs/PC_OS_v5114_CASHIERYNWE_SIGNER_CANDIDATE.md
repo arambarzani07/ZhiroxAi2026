@@ -52,3 +52,24 @@ connector must separately verify that the command was enqueued with a
    Cashierynwe signing action be allowed by the production control plane.
 5. Confirm the correct Windows account and its existing code-signing key;
    then perform signing with that key staying local.
+
+## Zero-screen Git preflight hardening (source-only)
+
+The fixed `cashierynwe_sign_release` Go action now applies bounded timeouts
+to each local Git preflight call, disables terminal / Git Credential Manager /
+GitHub CLI prompts, clears inherited askpass helpers and launches the approved
+PowerShell signer with the same prompt-free environment. Missing authentication
+must **fail closed** rather than open a browser or console. No arbitrary
+PowerShell/script path can be supplied by a cloud command.
+
+**Signature provenance is immutable:** the previously independently verified
+v5.1.14 signature authenticates ONLY its original
+`371394e3e31351929c122eea95ad926aec8a5d8316b347f25ec47f0b3d80f7fa`
+EXE. A new build containing this hardening has different bytes and MUST NOT
+reuse that signature or claim to be the previously verified release. It needs
+a separately versioned, freshly signed and verified candidate, protected
+update channel, approved owner cutover, and tested rollback before installation.
+
+Zero-screen Windows certificate use remains contingent on the *actual agent*
+Windows SID, current-user signing key provider and a real canary; a hardware
+key UI/PIN requirement cannot be bypassed.
