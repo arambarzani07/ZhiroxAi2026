@@ -369,11 +369,12 @@ Deno.serve(async (req: Request) => {
             return json({ ok: false, error: "cashierynwe_agent_not_allowed" }, 403);
           }
           if (!args || Array.isArray(args) || typeof args !== "object" ||
-              Object.keys(args).sort().join(",") !== "approval_phrase,approved_main_commit,release_tag" ||
-              args.release_tag !== "v1.0.1" ||
-              args.approval_phrase !== "SIGN_CASHIERYNWE_V1_0_1_ON_OWNER_PC" ||
-              typeof args.approved_main_commit !== "string" ||
-              !/^[a-f0-9]{40}$/.test(args.approved_main_commit)) {
+              Object.keys(args).sort().join(",") !== "approval_id,commit_sha,tag" ||
+              args.tag !== "v1.0.1" ||
+              typeof args.commit_sha !== "string" ||
+              !/^[a-f0-9]{40}$/.test(args.commit_sha) ||
+              typeof args.approval_id !== "string" ||
+              !uuidLike(args.approval_id)) {
             return json({ ok: false, error: "cashierynwe_sign_args_rejected" }, 422);
           }
           const { data: agent, error: agentErr } = await supabase.from("pc_relay_agents")
@@ -383,7 +384,10 @@ Deno.serve(async (req: Request) => {
             return json({ ok: false, error: "relay_agent_signer_not_installed", required: "5.1.14" }, 409);
           }
           const approvalId = String(body.approval_id || "").trim();
-          if (!uuidLike(approvalId)) {
+          // The owner-approved RPC consumes exactly these action arguments.
+          // Bind the UUID in the command payload to the separately authenticated
+          // one-time approval record; a phrase is NEVER owner authorization.
+          if (!uuidLike(approvalId) || approvalId.toLowerCase() !== args.approval_id.toLowerCase()) {
             return json({ ok: false, error: "one_time_exact_args_approval_required" }, 403);
           }
           const { data, error } = await supabase.rpc("enqueue_approved_pc_relay_command", {
