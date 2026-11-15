@@ -19,6 +19,16 @@ const (
 	cashierynweScriptGitPath = "scripts/windows/publish-local-signed-release.ps1"
 )
 
+var cashierynweSignLock sync.Mutex
+var cashierynweSignState = struct {
+	Running bool
+	State string
+	Started string
+	Finished string
+	Commit string
+	ErrorCode string
+}{State: "idle"}
+
 func pcOSCashierynweSignStatus() (interface{}, error) {
 	cashierynweSignLock.Lock()
 	defer cashierynweSignLock.Unlock()
