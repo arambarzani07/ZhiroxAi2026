@@ -1,0 +1,51 @@
+name: Verify REAL v5.1.14 Ed25519 proof against GitHub EXE (NO DEPLOY)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'release-candidates/v5.1.14/signature.b64'
+      - 'release-candidates/v5.1.14/manifest.json'
+      - 'tools/verify-v5114-signature.mjs'
+      - '.github/workflows/verify-v5114-public-signature-proof.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'release-candidates/v5.1.14/signature.b64'
+      - 'release-candidates/v5.1.14/manifest.json'
+      - 'tools/verify-v5114-signature.mjs'
+      - '.github/workflows/verify-v5114-public-signature-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-real-signature:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ensure public artifact is ONLY an unpromoted candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v5.1.14-candidate-091c7e23 \
+            --repo 'arambarzani07/ZhiroxAi2026' --json isPrerelease,isDraft \
+            --jq 'if .isPrerelease and (.isDraft|not) then "pass" else error("unsafe release state") end' | grep -qx pass
+          mkdir candidate
+          gh release download v5.1.14-candidate-091c7e23 \
+            --repo 'arambarzani07/ZhiroxAi2026' \
+            --pattern 'ZhiroxAISupervisor.exe' --dir candidate
+
+      - name: Cryptographically verify real, exact Windows EXE and Ed25519 signature
+        run: |
+          set -euo pipefail
+          node tools/verify-v5114-signature.mjs \
+            --manifest release-candidates/v5.1.14/manifest.json \
+            --binary candidate/ZhiroxAISupervisor.exe \
+            --signature release-candidates/v5.1.14/signature.b64
+          echo 'PUBLIC ED25519 PROOF VERIFIED. PRODUCTION ROLLOUT STILL FORBIDDEN.'
