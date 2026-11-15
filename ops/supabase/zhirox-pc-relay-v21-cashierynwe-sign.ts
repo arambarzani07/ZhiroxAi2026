@@ -332,6 +332,19 @@ Deno.serve(async (req: Request) => {
 
         if (binaryReadRefused(action, args)) return json({ ok: false, error: "binary_read_refused", use: "file_hash/app_status/binary_phrase_probe" }, 422);
 
+        if (action === "cashierynwe_sign_status") {
+          const { data: agent, error: agentErr } = await supabase.from("pc_relay_agents")
+            .select("version").eq("agent_id", agentId).maybeSingle();
+          if (agentErr) throw agentErr;
+          if (agentId !== "Server-c24b5c0f" ||
+              !agent || !versionAtLeast(String(agent.version || ""), "5.1.14")) {
+            return json({ ok: false, error: "relay_agent_signer_not_installed", required: "5.1.14" }, 409);
+          }
+          if (Object.keys(args || {}).length) {
+            return json({ ok: false, error: "sign_status_takes_no_args" }, 422);
+          }
+        }
+
         if (READ_ACTIONS.has(action)) {
           const { data, error } = await supabase.from("pc_relay_commands").insert({ agent_id: agentId, action, args, status: "queued" }).select("id,agent_id,action,args,status,created_at").single();
           if (error) throw error;
