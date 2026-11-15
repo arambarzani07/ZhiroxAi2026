@@ -1,0 +1,125 @@
+name: Publish immutable v5.1.15 UNSIGNED GitHub prerelease (NO PC INSTALL)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v5115-unsigned-transport.yml'
+      - 'release-candidates/v5.1.15/manifest.json'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v5115-unsigned-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_HEAD_SHA: '7185cd9625511eb48cb2974c5ed9920662d7150a'
+  SOURCE_RUN: '43721853659'
+  ARTIFACT_NAME: 'Zhirox-PC-OS-v5.1.15-7185cd9625511eb48cb2974c5ed9920662d7150a'
+  EXE_SHA256: '74cffc3eafab23cdead7b7d25df65cdb8d950ca0774a6b55f7d4c6a3dc21048b'
+  EXE_SIZE: '20027904'
+  RELEASE_TAG: 'v5.1.15-candidate-7185cd96'
+
+jobs:
+  verify-no-deploy-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify immutable manifest and reject production claims (read only)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          m=json.loads(Path('release-candidates/v5.1.15/manifest.json').read_text())
+          assert m['source_commit']==os.environ['SOURCE_HEAD_SHA']
+          assert m['sha256']==os.environ['EXE_SHA256']
+          assert m['size_bytes']==int(os.environ['EXE_SIZE'])
+          assert m['workflow_run_id']==int(os.environ['SOURCE_RUN'])
+          assert m['artifact_name']==os.environ['ARTIFACT_NAME']
+          assert m['publishable'] is False and m['rollout_allowed'] is False
+          assert m['signature_b64'] is None
+          assert m['signing_algorithm']=='Ed25519'
+          assert m['canonical_signing_message']=='5.1.15|'+os.environ['EXE_SHA256']+'|'+os.environ['EXE_SIZE']
+          assert m['blocked_reasons']
+          PY
+  publish-unsigned-candidate:
+    needs: verify-no-deploy-contract
+    if: github.event_name == 'push' && github.repository == 'arambarzani07/ZhiroxAi2026'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check exact validated main-source ancestor and release gate
+        run: |
+          set -euo pipefail
+          git cat-file -e "${SOURCE_HEAD_SHA}^{commit}"
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          python3 - <<'PY'
+          import json,os
+          with open('release-candidates/v5.1.15/manifest.json',encoding='utf-8') as f:
+              m=json.load(f)
+          assert m['version']=='5.1.15'
+          assert m['source_commit']==os.environ['SOURCE_HEAD_SHA']
+          assert m['sha256']==os.environ['EXE_SHA256']
+          assert m['size_bytes']==int(os.environ['EXE_SIZE'])
+          assert m['workflow_run_id']==int(os.environ['SOURCE_RUN'])
+          assert m['artifact_name']==os.environ['ARTIFACT_NAME']
+          assert m['publishable'] is False and m['rollout_allowed'] is False
+          assert m['signature_b64'] is None
+          assert m['canonical_signing_message']=='5.1.15|'+os.environ['EXE_SHA256']+'|'+os.environ['EXE_SIZE']
+          PY
+
+      - name: Download only tested Windows binary and re-verify all public provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run view "$SOURCE_RUN" --repo "${{ github.repository }}" --json conclusion,headSha \
+            --jq 'if .conclusion == "success" and .headSha == env.SOURCE_HEAD_SHA then "pass" else error("unsigned candidate provenance mismatch") end' | grep -qx pass
+          mkdir transport
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" \
+            --name "$ARTIFACT_NAME" --dir transport
+          python3 tools/verify_v5115_candidate_metadata.py transport "$SOURCE_HEAD_SHA"
+          test "$(sha256sum transport/ZhiroxAISupervisor.exe | awk '{print $1}')" = "$EXE_SHA256"
+          test "$(stat -c %s transport/ZhiroxAISupervisor.exe)" = "$EXE_SIZE"
+
+      - name: Create isolated UNSIGNED GitHub pre-release; never clobber or promote
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo 'Exact candidate pre-release already exists: refusing to overwrite assets or release tag' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" \
+            --target "$SOURCE_HEAD_SHA" --prerelease \
+            --title 'Zhirox PC Relay v5.1.15 — UNSIGNED candidate (DO NOT INSTALL)' \
+            --notes 'Public GitHub testing pre-release only. UNSIGNED DO NOT INSTALL. Not a production rollout. This candidate needs a fresh v5.1.15 Ed25519 signature from the already trusted keyholder, verified authenticated transport, exact one-time owner approval, and on-device safe rollback. No Windows, SQL, DVR, legacy POS or Supabase mutation.' \
+            transport/ZhiroxAISupervisor.exe \
+            transport/ZhiroxAISupervisor.exe.sha256 \
+            transport/metadata.json \
+            transport/signing-request.json
+
+      - name: Read back exact release bytes and fail if not verified pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" \
+            --json isDraft,isPrerelease \
+            --jq 'if .isPrerelease == true and .isDraft == false then "pass" else error("release state unsafe") end' | grep -qx pass
+          mkdir readback
+          gh release download "$RELEASE_TAG" --repo "${{ github.repository }}" \
+            --pattern ZhiroxAISupervisor.exe --dir readback
+          test "$(sha256sum readback/ZhiroxAISupervisor.exe | awk '{print $1}')" = "$EXE_SHA256"
+          test "$(stat -c %s readback/ZhiroxAISupervisor.exe)" = "$EXE_SIZE"
+          echo 'EXACT PRE-RELEASE TRANSPORT VERIFIED. NOT SIGNED OR PROMOTED. NO LIVE PC CHANGE.'
