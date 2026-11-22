@@ -322,7 +322,7 @@ jobs:
           $key = '19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
           Set-Content -Encoding ASCII 'channel-v5116\ZhiroxAISupervisor.exe.sha256' $sha
           $metadata = [ordered]@{
-            version = '5.1.15'
+            version = '5.1.16'
             from_version = '5.1.15'
             file = 'ZhiroxAISupervisor.exe'
             sha256 = $sha
@@ -337,7 +337,7 @@ jobs:
             pinned_installer_sha256 = 'e7c45af426fb7702a3b4d21167fc63051ace8c01f77d6ad0913fe1ed3e189b8b'
             execution_blocked_from_system = $true
             fresh_install_only = $true
-            required_agent_version = '5.1.15'
+            required_agent_version = '5.1.16'
             signed_update_published = $false
             zero_touch_recovery = $true
             screen_observability_read_only = $true
@@ -353,7 +353,7 @@ jobs:
             publishable = $false
           }
           $metadata | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 'channel-v5116\metadata.json'
-          [ordered]@{canonical="5.1.15|$sha|$size";version='5.1.15';sha256=$sha;size=$size;signing_public_key_hex=$key} | ConvertTo-Json | Set-Content -Encoding UTF8 'channel-v5116\signing-request.json'
+          [ordered]@{canonical="5.1.16|$sha|$size";version='5.1.16';sha256=$sha;size=$size;signing_public_key_hex=$key} | ConvertTo-Json | Set-Content -Encoding UTF8 'channel-v5116\signing-request.json'
 
       - name: Verify final artifact invariants
         shell: pwsh
