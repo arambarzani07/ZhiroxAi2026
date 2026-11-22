@@ -249,8 +249,8 @@ jobs:
           $canary = Get-Content 'buildsrc\pc_os_remote_canary_v517_windows.go' -Raw
           $bootstrap = Get-Content 'remote\agent-v1\cmd\zhirox-remote-screen\bootstrap_windows.go' -Raw
           $input = Get-Content 'src\pc_os_remote_input_v1.go' -Raw
-          if ($main -notmatch '5\.1\.15') { throw 'runtime version 5.1.15 missing' }
-          if ($pc -notmatch 'const pcOSVersion = "5\.1\.15"') { throw 'pcOSVersion 5.1.15 missing' }
+          if ($main -notmatch '5\.1\.16') { throw 'runtime version 5.1.16 missing' }
+          if ($pc -notmatch 'const pcOSVersion = "5\.1\.16"') { throw 'pcOSVersion 5.1.16 missing' }
           if ($main -notmatch 'pc_os_itemname_probe' -or $main -notmatch 'pc_os_itemname_status') { throw 'ItemName routes missing' }
           if ($main -notmatch 'pc_os_sql_compare_v2') { throw 'Read-only SQLCMD comparison route missing' }
           $sqlargs = Get-Content 'buildsrc/pc_os_itemname_sqlargs_v518.go' -Raw
