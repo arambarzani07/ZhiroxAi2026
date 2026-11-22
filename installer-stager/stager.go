@@ -99,6 +99,16 @@ func FetchApprovedLocation(ctx context.Context, client *http.Client, agentSecret
 // If destination already exists, it refuses to overwrite. The caller MUST
 // supply a service-owned directory with a separately verified protective ACL.
 func DownloadVerified(ctx context.Context, client *http.Client, cdnURL, outputDir string) error {
+    return downloadVerifiedWithSpec(ctx, client, cdnURL, outputDir, FileName, FileSize, FileSHA256)
+}
+
+// A package-private small-fixture variant allows bounded end-to-end CI
+// tests without transferring 158 MB or changing production constants.
+func downloadVerifiedWithSpec(ctx context.Context, client *http.Client, cdnURL, outputDir, filename string, expectedSize int64, expectedSHA256 string) error {
+    if expectedSize <= 0 || expectedSize > FileSize ||
+        filename == "" || filepath.Base(filename) != filename || filename == "." {
+        return errors.New("stager_invalid_fixed_test_spec")
+    }
     if err := ValidateCDNURL(cdnURL); err != nil { return err }
     if outputDir == "" || !filepath.IsAbs(outputDir) {
         return errors.New("staging_root_not_absolute")
@@ -107,7 +117,7 @@ func DownloadVerified(ctx context.Context, client *http.Client, cdnURL, outputDi
     if err != nil || !dir.IsDir() || dir.Mode()&os.ModeSymlink != 0 {
         return errors.New("staging_root_missing_or_reparse_point")
     }
-    dest := filepath.Join(outputDir, FileName)
+    dest := filepath.Join(outputDir, filename)
     if _, err := os.Lstat(dest); err == nil {
         return errors.New("staged_artifact_already_exists")
     } else if !os.IsNotExist(err) {
@@ -123,7 +133,7 @@ func DownloadVerified(ctx context.Context, client *http.Client, cdnURL, outputDi
         (res.Header.Get("Content-Encoding") != "" && res.Header.Get("Content-Encoding") != "identity") {
         return errors.New("stager_cdn_body_not_raw_binary")
     }
-    if res.ContentLength >= 0 && res.ContentLength != FileSize {
+    if res.ContentLength >= 0 && res.ContentLength != expectedSize {
         return errors.New("stager_cdn_length_wrong")
     }
     f, err := os.CreateTemp(outputDir, ".zhirox-verified-installer-*")
@@ -131,11 +141,11 @@ func DownloadVerified(ctx context.Context, client *http.Client, cdnURL, outputDi
     tmp := f.Name()
     defer os.Remove(tmp)
     h := sha256.New()
-    count, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(res.Body, FileSize+1))
+    count, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(res.Body, expectedSize+1))
     syncErr := f.Sync()
     closeErr := f.Close()
     if copyErr != nil || syncErr != nil || closeErr != nil ||
-        count != FileSize || !ExactDigest(h.Sum(nil), FileSHA256) {
+        count != expectedSize || !ExactDigest(h.Sum(nil), expectedSHA256) {
         return errors.New("stager_asset_sha256_size_mismatch")
     }
     // Exclusive hard-link commit: unlike a rename, this cannot overwrite a
