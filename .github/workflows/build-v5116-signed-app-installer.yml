@@ -11,14 +11,16 @@ on:
       - 'tools/patch_cashierynwe_sign_relay.py'
       - 'tools/patch_v5115_cashierynwe_signer.py'
       - 'src/pc_os_cashierynwe_sign_policy.go'
-      - 'tools/verify_v5115_candidate_metadata.py'
-      - 'tools/test_verify_v5115_candidate_metadata.py'
+      - 'tools/verify_v5116_candidate_metadata.py'
+      - 'tools/test_verify_v5116_candidate_metadata.py'
       - 'src/pc_os_signed_app_install_policy.go'
       - 'src/pc_os_signed_app_install_policy_test.go'
       - 'src/pc_os_signed_app_install_windows.go'
       - 'tools/patch_v5116_installer.py'
       - 'ops/supabase/zhirox-pc-relay-v22-signed-installer.ts'
       - 'tools/test_v5116_signed_installer_policy.py'
+      - 'tools/verify_v5116_candidate_metadata.py'
+      - 'tools/test_verify_v5116_candidate_metadata.py'
   pull_request:
     branches: [main]
     paths:
@@ -28,14 +30,16 @@ on:
       - 'src/pc_os_cashierynwe_sign_policy_test.go'
       - 'tools/patch_cashierynwe_sign_relay.py'
       - 'tools/patch_v5115_cashierynwe_signer.py'
-      - 'tools/verify_v5115_candidate_metadata.py'
-      - 'tools/test_verify_v5115_candidate_metadata.py'
+      - 'tools/verify_v5116_candidate_metadata.py'
+      - 'tools/test_verify_v5116_candidate_metadata.py'
       - 'src/pc_os_signed_app_install_policy.go'
       - 'src/pc_os_signed_app_install_policy_test.go'
       - 'src/pc_os_signed_app_install_windows.go'
       - 'tools/patch_v5116_installer.py'
       - 'ops/supabase/zhirox-pc-relay-v22-signed-installer.ts'
       - 'tools/test_v5116_signed_installer_policy.py'
+      - 'tools/verify_v5116_candidate_metadata.py'
+      - 'tools/test_verify_v5116_candidate_metadata.py'
   workflow_dispatch:
 
 permissions:
@@ -76,7 +80,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m unittest discover -s ../tools -p 'test_verify_v5115_candidate_metadata.py' -v
+          python -m unittest discover -s ../tools -p 'test_verify_v5116_candidate_metadata.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Unsigned release gate regression failed' }
 
       - name: Verify exact source checkout
@@ -328,6 +332,11 @@ jobs:
             source_commit = $env:ZHIROX_SOURCE_COMMIT
             inherited_signed_baseline_commit = '46b208507293d677428a25b146599eb537c532b9'
             bounded_signer_action = 'cashierynwe_sign_release'
+            bounded_signed_installer_action = 'signed_app_install'
+            approved_app_release = 'cashierynwe@1.0.10'
+            pinned_installer_sha256 = 'e7c45af426fb7702a3b4d21167fc63051ace8c01f77d6ad0913fe1ed3e189b8b'
+            execution_blocked_from_system = $true
+            fresh_install_only = $true
             required_agent_version = '5.1.15'
             signed_update_published = $false
             zero_touch_recovery = $true
@@ -364,7 +373,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python ../tools/verify_v5115_candidate_metadata.py channel-v5116 "$env:ZHIROX_SOURCE_COMMIT"
+          python ../tools/verify_v5116_candidate_metadata.py channel-v5116 "$env:ZHIROX_SOURCE_COMMIT"
           if ($LASTEXITCODE -ne 0) { throw 'Immutable artifact/request provenance validation FAILED' }
 
       - name: Upload STRICTLY UNSIGNED v5.1.16 candidate artifact (NO DEPLOY)
