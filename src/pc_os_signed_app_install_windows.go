@@ -18,7 +18,9 @@ import (
     "path/filepath"
     "strings"
     "sync"
+    "syscall"
     "time"
+    "unsafe"
 )
 
 var signedAppInstallMutex sync.Mutex
@@ -90,13 +92,20 @@ func pcOSRunAllowlistedFreshInstall(spec SignedAppInstallSpec) string {
     currentUser, err := user.Current()
     if err != nil { return "interactive_identity_unavailable" }
     identity := strings.ToLower(currentUser.Username)
+    // Session 0 (Windows services) cannot safely run a per-user NSIS install.
+    // Do not infer an interactive login from environment variables alone.
+    var sessionID uint32
+    kernel32 := syscall.NewLazyDLL("kernel32.dll")
+    sessionProc := kernel32.NewProc("ProcessIdToSessionId")
+    ok, _, _ := sessionProc.Call(uintptr(os.Getpid()), uintptr(unsafe.Pointer(&sessionID)))
+    if ok == 0 || sessionID == 0 { return "interactive_user_broker_required" }
     // The deployed Relay runs as NT AUTHORITY\SYSTEM. Electron's NSIS
     // package is per-user; a silent SYSTEM install would target the wrong
     // profile and must never be attempted. A future reviewed attended
     // user-session broker is required to enable this on the store server.
     if strings.Contains(identity, "system") ||
         strings.EqualFold(os.Getenv("USERNAME"), "SYSTEM") ||
-        strings.EqualFold(os.Getenv("SESSIONNAME"), "Services") ||
+        (os.Getenv("SESSIONNAME") != "" && strings.EqualFold(os.Getenv("SESSIONNAME"), "Services")) ||
         os.Getenv("LOCALAPPDATA") == "" {
         return "interactive_user_broker_required"
     }
