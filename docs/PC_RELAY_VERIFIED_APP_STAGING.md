@@ -45,6 +45,13 @@ have effective Write/Modify/Delete/DeleteChild/WriteDAC access to the
 directory, request tickets or staged EXE; reject reparse-point parents.
 Do not trust Unix mode bits as an equivalent to a Windows ACL audit.
 
+A read-only `installer-stager/windows-verify-ntfs-acl.ps1` preflight now
+checks both staging and InstallRequests under the exact SYSTEM-owned
+`ProgramData\\ZhiroxAI` root. It rejects inherited permissions, reparse
+points, untrusted writers and untrusted owners without changing any ACLs.
+Its failure is a release blocker, never an excuse to auto-grant permissions.
+The Windows CI validates that an unprovisioned directory fails closed.
+
 Next, introduce a protected service-side request-ticket emitter and a
 local-user broker installer handoff with an independently authenticated
 one-time approval, status handshake, Windows owner consent and rollback.
