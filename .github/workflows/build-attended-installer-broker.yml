@@ -1,0 +1,74 @@
+name: Build attended Windows installer broker (UNSIGNED / DISABLED CANDIDATE)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'installer-broker/**'
+      - '.github/workflows/build-attended-installer-broker.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'installer-broker/**'
+      - '.github/workflows/build-attended-installer-broker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-broker:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: installer-broker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Run exact-ticket and freshness replay rejection tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -v ./... -count=1
+          if ($LASTEXITCODE -ne 0) { throw 'Attended broker ticket tests failed' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Attended broker Go vet failed' }
+      - name: Build Windows x64 GUI helper, never deploy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go build -trimpath -ldflags='-H=windowsgui -s -w' -o ZhiroxInstallerBroker.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Attended broker Windows build failed' }
+          $code = Get-Content 'main_windows.go' -Raw
+          if ($code -notmatch 'brokerProductionEnabled = false') { throw 'Broker must remain disabled before local ACL/attended canary validation' }
+          if ($code -notmatch 'ProcessIdToSessionId' -or $code -notmatch 'WTSGetActiveConsoleSessionId') { throw 'User-session isolation gate missing' }
+          if ($code -notmatch 'MessageBoxW' -or $code -notmatch 'Get-AuthenticodeSignature') { throw 'Interactive consent or signature check missing' }
+          if ($code -notmatch 'installer_exited_zero_needs_app_verification') { throw 'Installer exit 0 must not be reported as verified success' }
+          if ($code -match 'cmd.exe|ExecutionPolicy Bypass|WinExec') { throw 'Forbidden unrestricted process behavior' }
+          $sha = (Get-FileHash -Algorithm SHA256 'ZhiroxInstallerBroker.exe').Hash.ToLowerInvariant()
+          Set-Content -Encoding ASCII 'ZhiroxInstallerBroker.exe.sha256' $sha
+          [ordered]@{
+            status = 'unsigned_candidate_disabled'
+            version = 'broker-v1'
+            sha256 = $sha
+            publishable = $false
+            unattended_access = $false
+            owner_approval_required = $true
+            local_consent_required = $true
+            production_gate_enabled = $false
+            signed_app_install_permitted = $false
+          } | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 'broker-metadata.json'
+      - name: Upload isolated unsigned test artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-Windows-Attended-Broker-UNSIGNED-DISABLED-${{ github.sha }}
+          path: |
+            installer-broker/ZhiroxInstallerBroker.exe
+            installer-broker/ZhiroxInstallerBroker.exe.sha256
+            installer-broker/broker-metadata.json
+          if-no-files-found: error
+          retention-days: 7
