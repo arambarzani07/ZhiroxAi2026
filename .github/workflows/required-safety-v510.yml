@@ -161,3 +161,29 @@ jobs:
           if ($text -notmatch 'HideWindow: true') { throw 'HideWindow Zero-UI flag missing' }
           if ($text -notmatch 'CreationFlags: pcOSNoWindowCreationFlag') { throw 'CREATE_NO_WINDOW flag missing' }
           if ($text -notmatch 'ZhiroxAISupervisor\.exe\.pre-vrollback-') { throw 'rollback backup contract missing' }
+
+      - name: Set up Go for attended-broker isolated validation
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Validate and compile disabled Windows user-session broker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location installer-broker
+          try {
+            go test -v ./... -count=1
+            if ($LASTEXITCODE -ne 0) { throw 'Broker validation tests failed' }
+            go vet ./...
+            if ($LASTEXITCODE -ne 0) { throw 'Broker Go vet failed' }
+            go build -trimpath -ldflags='-H=windowsgui -s -w' -o ZhiroxInstallerBroker.exe .
+            if ($LASTEXITCODE -ne 0) { throw 'Windows broker compile failed' }
+            $src = Get-Content 'main_windows.go' -Raw
+            if ($src -notmatch 'brokerProductionEnabled = false') { throw 'unsigned broker must remain disabled' }
+            if ($src -notmatch 'MessageBoxW' -or $src -notmatch 'Get-AuthenticodeSignature') { throw 'broker consent or signature invariant missing' }
+            if ($src -match 'cmd.exe|ExecutionPolicy Bypass|WinExec') { throw 'generic command execution prohibited' }
+          } finally {
+            Pop-Location
+          }
