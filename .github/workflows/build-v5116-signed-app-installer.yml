@@ -69,7 +69,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m unittest ../tools/test_v5116_signed_installer_policy.py -v
+          python ../tools/test_v5116_signed_installer_policy.py -v
           if ($LASTEXITCODE -ne 0) { throw 'Signed app installer policy regression failed' }
 
       - name: Unit-test artifact integrity / no premature publishing
