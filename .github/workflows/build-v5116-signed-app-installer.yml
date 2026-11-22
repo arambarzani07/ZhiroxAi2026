@@ -17,6 +17,8 @@ on:
       - 'src/pc_os_signed_app_install_policy_test.go'
       - 'src/pc_os_signed_app_install_windows.go'
       - 'tools/patch_v5116_installer.py'
+      - 'ops/supabase/zhirox-pc-relay-v22-signed-installer.ts'
+      - 'tools/test_v5116_signed_installer_policy.py'
   pull_request:
     branches: [main]
     paths:
@@ -32,6 +34,8 @@ on:
       - 'src/pc_os_signed_app_install_policy_test.go'
       - 'src/pc_os_signed_app_install_windows.go'
       - 'tools/patch_v5116_installer.py'
+      - 'ops/supabase/zhirox-pc-relay-v22-signed-installer.ts'
+      - 'tools/test_v5116_signed_installer_policy.py'
   workflow_dispatch:
 
 permissions:
@@ -60,6 +64,13 @@ jobs:
         with:
           go-version: '1.24.x'
           cache: false
+
+      - name: Enforce v5.1.16 immutable package and exact approval gates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest ../tools/test_v5116_signed_installer_policy.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Signed app installer policy regression failed' }
 
       - name: Unit-test artifact integrity / no premature publishing
         shell: pwsh
