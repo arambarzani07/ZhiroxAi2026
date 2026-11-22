@@ -37,6 +37,23 @@ jobs:
         run: go test -v ./... -count=1
       - name: Static analysis
         run: go vet ./...
+      - name: Confirm Windows NTFS preflight refuses an unprovisioned/untrusted directory
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set +e
+          pwsh -NoProfile -NonInteractive -File ./windows-verify-ntfs-acl.ps1 -Root "$RUNNER_TEMP/zirox-unapproved-test-root" >/dev/null 2>&1
+          code=$?
+          set -e
+          if [[ "$code" -ne 17 ]]; then
+            echo "NTFS permission preflight unexpectedly allowed untrusted staging" >&2
+            exit 1
+          fi
+          grep -q 'NTFS_ACL_INHERITANCE_NOT_DISABLED' windows-verify-ntfs-acl.ps1
+          grep -q 'NTFS_ACL_UNTRUSTED_WRITER' windows-verify-ntfs-acl.ps1
+          grep -q 'NTFS_ACL_REPARSE_POINT_FORBIDDEN' windows-verify-ntfs-acl.ps1
+          echo "NTFS_ACL_FAIL_CLOSED_VERIFIED"
+
       - name: Cross-check fixed published asset identity without deploying
         shell: bash
         run: |
