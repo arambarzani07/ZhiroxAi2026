@@ -153,7 +153,7 @@ func pcOSRunAllowlistedFreshInstall(spec SignedAppInstallSpec) string {
         "if ($s.SignerCertificate.NotBefore -gt (Get-Date) -or $s.SignerCertificate.NotAfter -le (Get-Date)) { exit 42 }; " +
         "$eku=@($s.SignerCertificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' }); " +
         "if ($eku.Count -ne 1) { exit 43 }; " +
-        "$ids=@([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$eku[0]).EnhancedKeyUsages | ForEach-Object { $_.Value }; " +
+        "$ids=@(([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$eku[0]).EnhancedKeyUsages | ForEach-Object { $_.Value }); " +
         "if ($ids -notcontains '1.3.6.1.5.5.7.3.3') { exit 44 }; exit 0"
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     cmd := exec.CommandContext(ctx, ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
