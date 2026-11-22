@@ -1,0 +1,21 @@
+{
+  "version": "5.1.16",
+  "source_commit": "a3385ac359cabeb718c34d31755558789645e878",
+  "workflow_run_id": 45034007224,
+  "artifact_id": 14758579581,
+  "artifact_name": "Zhirox-PC-OS-v5.1.16-a3385ac359cabeb718c34d31755558789645e878",
+  "artifact_zip_sha256": "3511bb5d7da259d749f4f908f142ddff6530997ef8da9396695dd138830c6266",
+  "sha256": "6f3d4fa4e1537a24f79f60e927c19175b8efcc6ca2b2f9fe5eaa82e94b53b6ef",
+  "size_bytes": 20063232,
+  "canonical_signing_message": "5.1.16|6f3d4fa4e1537a24f79f60e927c19175b8efcc6ca2b2f9fe5eaa82e94b53b6ef|20063232",
+  "pinned_update_public_key_hex": "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143",
+  "signature_b64": null,
+  "publishable": false,
+  "rollout_allowed": false,
+  "blocked_reasons": [
+    "Existing trusted keyholder must sign exact canonical message",
+    "Signature verification and authenticated update transport pending",
+    "Windows user-session broker is not deployed or tested",
+    "Cashierynwe signed installer not installed and not verified on production PC"
+  ]
+}
