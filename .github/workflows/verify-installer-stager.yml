@@ -1,0 +1,51 @@
+name: Validate immutable Cashierynwe installer staging (NO DEPLOY)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'installer-stager/**'
+      - '.github/workflows/verify-installer-stager.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'installer-stager/**'
+      - '.github/workflows/verify-installer-stager.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: installer-stager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Reject unsafe redirects, leaked secrets, wrong hash and duplicate assets
+        run: go test -v ./... -count=1
+      - name: Static analysis
+        run: go vet ./...
+      - name: Cross-check fixed published asset identity without deploying
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'FileName = "Cashierynwe-Setup-1.0.10-x64.exe"' policy.go
+          grep -q 'FileSize int64 = 158128464' policy.go
+          grep -q 'e7c45af426fb7702a3b4d21167fc63051ace8c01f77d6ad0913fe1ed3e189b8b' policy.go
+          if grep -R -qE 'cmd\.exe|ExecutionPolicy Bypass|WinExec|CreateProcessAsUser|powershell\.exe' --include='*.go' .; then
+            echo 'Remote process-launch APIs forbidden from staging-only module' >&2
+            exit 1
+          fi
+          echo 'STAGER_VALIDATED_SOURCE_ONLY_NO_INSTALL'
