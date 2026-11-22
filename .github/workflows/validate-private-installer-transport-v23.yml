@@ -1,0 +1,56 @@
+name: Validate owner-approved private installer transport (SOURCE ONLY)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/supabase/installer_transport_policy_v23.ts'
+      - 'ops/supabase/installer_transport_policy_v23_test.ts'
+      - 'ops/supabase/zhirox-pc-relay-v23-private-signed-asset.ts'
+      - '.github/workflows/validate-private-installer-transport-v23.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/supabase/installer_transport_policy_v23.ts'
+      - 'ops/supabase/installer_transport_policy_v23_test.ts'
+      - 'ops/supabase/zhirox-pc-relay-v23-private-signed-asset.ts'
+      - '.github/workflows/validate-private-installer-transport-v23.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-approval-and-redirect-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test consumed owner approval and immutable CDN target
+        run: deno test --no-check ops/supabase/installer_transport_policy_v23_test.ts
+      - name: Assert backend never leaks GitHub bearer token or enables generic downloads
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('ops/supabase/zhirox-pc-relay-v23-private-signed-asset.ts').read_text()
+          policy=Path('ops/supabase/installer_transport_policy_v23.ts').read_text()
+          assert 'CASHIERYNWE_PRIVATE_RELEASES_READ_TOKEN' in src
+          assert 'approvedSignedDownload(agentId, approvalId, approval, command, Date.now())' in src
+          assert 'pc_relay_command_approvals' in src
+          assert 'pc_relay_commands' in src
+          assert 'command_id' in src
+          assert 'signed-app-download' in src
+          assert 'authAgent(req, agentId)' in src
+          assert 'github.status !== 302' in src
+          assert 'Cache-Control' in src and 'no-store' in src
+          assert 'return new Response(JSON.stringify({' in src
+          assert 'token' not in src.split('return new Response(JSON.stringify({')[-1].split('}), {')[0]
+          assert 'source_url' not in policy and 'args["url"]' not in policy
+          assert '779202065' in policy
+          assert 'e7c45af426fb7702a3b4d21167fc63051ace8c01f77d6ad0913fe1ed3e189b8b' in policy
+          assert '158128464' in policy
+          print('PRIVATE_INSTALLER_SOURCE_ONLY_SECURITY_GATES_PASS')
+          PY
