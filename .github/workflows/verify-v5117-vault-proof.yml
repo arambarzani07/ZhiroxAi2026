@@ -1,0 +1,51 @@
+name: Verify actual v5.1.17 Vault signature (NO ROLLOUT)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-v5117-vault-proof.yml'
+      - 'release-candidates/v5.1.17/**'
+      - 'tools/sign_v5117_exact.go'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-v5117-vault-proof.yml'
+      - 'release-candidates/v5.1.17/**'
+      - 'tools/sign_v5117_exact.go'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify-vault-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Verify exact original build and artifact identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run view 45801019161 --repo arambarzani07/ZhiroxAi2026 --json conclusion,headSha --jq 'if .conclusion == "success" and .headSha == "5c82e8b55dca561f934dec4bd927c849bcaf1cd6" then "pass" else error("build provenance mismatch") end' | grep -qx pass
+          gh api repos/arambarzani07/ZhiroxAi2026/actions/artifacts/15108005372 --jq 'if .id == 15108005372 and .expired == false and .digest == "sha256:c40a1ead8eb980a0eb9a32e258730d0004772d4f4d45547c4a3cd9c0f0b63246" and .name == "Zhirox-PC-OS-v5.1.17-5c82e8b55dca561f934dec4bd927c849bcaf1cd6" then "pass" else error("artifact identity mismatch") end' | grep -qx pass
+      - uses: actions/download-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.17-5c82e8b55dca561f934dec4bd927c849bcaf1cd6
+          run-id: 45801019161
+          repository: arambarzani07/ZhiroxAi2026
+          github-token: ${{ github.token }}
+          path: candidate
+      - name: Independently verify candidate bytes and detached signature
+        run: |
+          set -euo pipefail
+          python3 tools/verify_v5117_candidate_metadata.py candidate 5c82e8b55dca561f934dec4bd927c849bcaf1cd6
+          go test -v tools/sign_v5117_exact.go tools/sign_v5117_exact_test.go
+          go build -o "$RUNNER_TEMP/zhirox-v5117-exact" tools/sign_v5117_exact.go
+          "$RUNNER_TEMP/zhirox-v5117-exact" verify candidate/ZhiroxAISupervisor.exe release-candidates/v5.1.17/v5117-signature-proof.json
+          echo 'VAULT_SIGNATURE_VERIFIED_WITH_EXISTING_PIN; NO ROLLOUT'
