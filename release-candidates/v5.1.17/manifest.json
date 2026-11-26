@@ -1,0 +1,21 @@
+{
+  "version": "5.1.17",
+  "source_commit": "5c82e8b55dca561f934dec4bd927c849bcaf1cd6",
+  "workflow_run_id": 45801019161,
+  "artifact_id": 15108005372,
+  "artifact_name": "Zhirox-PC-OS-v5.1.17-5c82e8b55dca561f934dec4bd927c849bcaf1cd6",
+  "artifact_zip_sha256": "c40a1ead8eb980a0eb9a32e258730d0004772d4f4d45547c4a3cd9c0f0b63246",
+  "sha256": "8e5c6e3c97e7362aaee4fda6afa331f0bc38d8e792f3bd98072bfb815c58e063",
+  "size_bytes": 20037120,
+  "canonical_signing_message": "5.1.17|8e5c6e3c97e7362aaee4fda6afa331f0bc38d8e792f3bd98072bfb815c58e063|20037120",
+  "pinned_update_public_key_hex": "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143",
+  "signature_b64": null,
+  "publishable": false,
+  "rollout_allowed": false,
+  "blocked_reasons": [
+    "Owner-only exact Ed25519 signature required",
+    "Independent public signature verification and authenticated transport required",
+    "Explicit rollout approval and on-device health/rollback evidence required",
+    "Registry observation is not executable-version proof"
+  ]
+}

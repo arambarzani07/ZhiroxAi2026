@@ -1,0 +1,144 @@
+name: Sign exact Zhirox v5.1.17 Relay candidate (owner only, NO DEPLOY)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/sign-v5117-exact-proof.yml'
+      - 'tools/sign_v5117_exact.go'
+      - 'tools/sign_v5117_exact_test.go'
+      - 'release-candidates/v5.1.17/manifest.json'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sign-v5117-exact-proof.yml'
+      - 'tools/sign_v5117_exact.go'
+      - 'tools/sign_v5117_exact_test.go'
+      - 'release-candidates/v5.1.17/manifest.json'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Owner-only: type SIGN-ONLY-v5.1.17-8e5c6e3c. This signs ONLY the pinned candidate, does not install or publish.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  test-unsigned-proof-contract:
+    name: Verify signing safety contract without secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Execute exact-candidate tests (no seed)
+        run: |
+          set -euo pipefail
+          go test -v tools/sign_v5117_exact.go tools/sign_v5117_exact_test.go
+          go build -o /tmp/zhirox-v5117-exact tools/sign_v5117_exact.go
+
+  sign-exact-candidate:
+    name: Owner-only immutable artifact signature, NO ROLLOUT
+    needs: [test-unsigned-proof-contract]
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'arambarzani07' &&
+      inputs.confirm == 'SIGN-ONLY-v5.1.17-8e5c6e3c'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Compile pinned verification-only signer (WITHOUT secret)
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/zhirox-v5117-exact" tools/sign_v5117_exact.go
+
+      - name: Verify immutable GitHub Actions artifact ID, digest, source and successful run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run view 45801019161 --repo arambarzani07/ZhiroxAi2026 --json conclusion,headSha \
+            --jq 'if .conclusion == "success" and .headSha == "5c82e8b55dca561f934dec4bd927c849bcaf1cd6" then "pass" else error("build provenance mismatch") end' | grep -qx pass
+          gh api repos/arambarzani07/ZhiroxAi2026/actions/artifacts/15108005372 \
+            --jq 'if .id == 15108005372 and .expired == false and .digest == "sha256:c40a1ead8eb980a0eb9a32e258730d0004772d4f4d45547c4a3cd9c0f0b63246" and .name == "Zhirox-PC-OS-v5.1.17-5c82e8b55dca561f934dec4bd927c849bcaf1cd6" then "pass" else error("artifact identity mismatch") end' | grep -qx pass
+
+      - name: Download artifact from the ORIGINAL verified Windows build only
+        uses: actions/download-artifact@v4
+        with:
+          name: Zhirox-PC-OS-v5.1.17-5c82e8b55dca561f934dec4bd927c849bcaf1cd6
+          run-id: 45801019161
+          repository: arambarzani07/ZhiroxAi2026
+          github-token: ${{ github.token }}
+          path: unsigned-candidate
+
+      - name: Independently verify artifact, pinned SHA, bytes and UNSIGNED release gate
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          manifest=json.loads(Path('release-candidates/v5.1.17/manifest.json').read_text())
+          binary=Path('unsigned-candidate/ZhiroxAISupervisor.exe')
+          assert binary.is_file() and not binary.is_symlink(), 'candidate binary missing'
+          raw=binary.read_bytes()
+          h=hashlib.sha256(raw).hexdigest()
+          assert len(raw)==20037120, 'candidate binary length mismatch'
+          assert h=='8e5c6e3c97e7362aaee4fda6afa331f0bc38d8e792f3bd98072bfb815c58e063', 'candidate hash mismatch'
+          assert manifest['source_commit']=='5c82e8b55dca561f934dec4bd927c849bcaf1cd6'
+          assert manifest['workflow_run_id']==45801019161
+          assert manifest['artifact_id']==15108005372
+          assert manifest['artifact_zip_sha256']=='c40a1ead8eb980a0eb9a32e258730d0004772d4f4d45547c4a3cd9c0f0b63246'
+          assert manifest['artifact_name']=='Zhirox-PC-OS-v5.1.17-5c82e8b55dca561f934dec4bd927c849bcaf1cd6'
+          assert manifest['sha256']==h and manifest['size_bytes']==len(raw)
+          assert manifest['version']=='5.1.17'
+          assert manifest['pinned_update_public_key_hex']=='19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
+          assert manifest['signature_b64'] is None and manifest['publishable'] is False and manifest['rollout_allowed'] is False
+          print('PINNED_UNSIGNED_CANDIDATE_VERIFIED')
+          PY
+
+      - name: Sign canonical exact SHA / size with EXISTING Ed25519 key (no PFX)
+        env:
+          ZHIROX_UPDATE_ED25519_SEED_B64: ${{ secrets.ZHIROX_UPDATE_ED25519_SEED_B64 }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/zhirox-v5117-exact" sign \
+            unsigned-candidate/ZhiroxAISupervisor.exe \
+            signed-proof/v5117-signature-proof.json
+
+      - name: Verify public signature independently (NO secret)
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/zhirox-v5117-exact" verify \
+            unsigned-candidate/ZhiroxAISupervisor.exe \
+            signed-proof/v5117-signature-proof.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('signed-proof/v5117-signature-proof.json'))
+          assert p['publishable'] is False and p['rollout_allowed'] is False
+          assert p['sha256']=='8e5c6e3c97e7362aaee4fda6afa331f0bc38d8e792f3bd98072bfb815c58e063'
+          assert p['public_key_hex']=='19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143'
+          print('SIGNATURE_VERIFIED_WITH_PRODUCTION_PIN; ROLLOUT_STILL_BLOCKED')
+          PY
+
+      - name: Upload ONLY public signature proof (never EXE, PFX, seed or service token)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhirox-v5.1.17-Ed25519-PUBLIC-PROOF-NO-ROLLOUT
+          path: signed-proof/v5117-signature-proof.json
+          if-no-files-found: error
+          retention-days: 7
