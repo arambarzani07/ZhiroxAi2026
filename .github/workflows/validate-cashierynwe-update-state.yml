@@ -1,0 +1,25 @@
+name: Validate bounded Cashierynwe update journal probe
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/pc_os_cashierynwe_update_state*'
+      - '.github/workflows/validate-cashierynwe-update-state.yml'
+permissions:
+  contents: read
+jobs:
+  update-state-probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Compile native Windows reader and test bounded parser
+        shell: pwsh
+        run: |
+          go test -v src/pc_os_cashierynwe_version_policy.go src/pc_os_cashierynwe_update_state.go src/pc_os_cashierynwe_update_state_windows.go src/pc_os_cashierynwe_update_state_test.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
