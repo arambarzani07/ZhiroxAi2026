@@ -1,0 +1,12 @@
+{
+  "version": "5.1.18",
+  "filename": "ZhiroxAISupervisor.exe",
+  "sha256": "07a006867d6763d67fa866e33c5cca2eab5d49634881c4312979015f3ae5a469",
+  "size_bytes": 20055552,
+  "public_key_hex": "19b97bd1183b741f2dce3a3b8495aba13d5b0d160504c69c92bdc37b0d941143",
+  "canonical": "5.1.18|07a006867d6763d67fa866e33c5cca2eab5d49634881c4312979015f3ae5a469|20055552",
+  "algorithm": "Ed25519",
+  "signature_b64": "fN0qFQLakQBx3DT4l3O7r5NVM4ZgW8wDN/C35NkV24lGjF31aLe4H4EwxzaMNMyP+S0/it3YeSUARn7UMzTxCQ==",
+  "publishable": false,
+  "rollout_allowed": false
+}

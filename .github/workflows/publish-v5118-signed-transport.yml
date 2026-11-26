@@ -1,0 +1,71 @@
+name: Publish exact v5.1.18 signed transport candidate (NO ROLLOUT)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v5118-signed-transport.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v5118-signed-transport.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: exact-v5118-transport
+  cancel-in-progress: false
+jobs:
+  verify-and-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+      actions: read
+    env:
+      SOURCE_SHA: '6a79813f36bb0f16b152544bdafd99d4dba72296'
+      SOURCE_RUN: '45823077404'
+      ARTIFACT_NAME: 'Zhirox-PC-OS-v5.1.18-6a79813f36bb0f16b152544bdafd99d4dba72296'
+      RELEASE_TAG: 'v5.1.18-candidate-6a79813f'
+      EXE_SHA256: '07a006867d6763d67fa866e33c5cca2eab5d49634881c4312979015f3ae5a469'
+      EXE_SIZE: '20055552'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Verify immutable build and public proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          gh run view "$SOURCE_RUN" --repo arambarzani07/ZhiroxAi2026 --json conclusion,headSha --jq 'if .conclusion == "success" and .headSha == env.SOURCE_SHA then "pass" else error("source mismatch") end' | grep -qx pass
+          gh api repos/arambarzani07/ZhiroxAi2026/actions/artifacts/15117714893 --jq 'if .id == 15117714893 and .expired == false and .digest == "sha256:4b7de50d99b86ef6470e9c65da7dd9e59bd808ccc3fef0d5ec0d511f3ac8addd" and .name == env.ARTIFACT_NAME then "pass" else error("artifact mismatch") end' | grep -qx pass
+          gh run download "$SOURCE_RUN" --repo arambarzani07/ZhiroxAi2026 --name "$ARTIFACT_NAME" --dir candidate
+          python3 tools/verify_v5118_candidate_metadata.py candidate "$SOURCE_SHA"
+          go test -v tools/sign_v5118_exact.go tools/sign_v5118_exact_test.go
+          go build -o "$RUNNER_TEMP/zhirox-v5118-exact" tools/sign_v5118_exact.go
+          "$RUNNER_TEMP/zhirox-v5118-exact" verify candidate/ZhiroxAISupervisor.exe release-candidates/v5.1.18/v5118-signature-proof.json
+      - name: Stage exact signed bytes as isolated prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'arambarzani07/ZhiroxAi2026' && github.actor == 'arambarzani07'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo arambarzani07/ZhiroxAi2026 >/dev/null 2>&1; then
+            echo 'Refusing to overwrite immutable transport' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --repo arambarzani07/ZhiroxAi2026 --target "$SOURCE_SHA" --prerelease --title 'Zhirox PC Relay v5.1.18 — signed candidate, rollout blocked' --notes 'Exact detached Ed25519 signature verified. This transport is not a production promotion or installation authorization. Existing live channel unchanged. One-time owner approval, authenticated transport, health and rollback gates remain required.' candidate/ZhiroxAISupervisor.exe candidate/ZhiroxAISupervisor.exe.sha256 candidate/metadata.json release-candidates/v5.1.18/v5118-signature-proof.json
+          gh release view "$RELEASE_TAG" --repo arambarzani07/ZhiroxAi2026 --json isDraft,isPrerelease --jq 'if .isPrerelease and (.isDraft|not) then "pass" else error("invalid release state") end' | grep -qx pass
+          mkdir readback
+          gh release download "$RELEASE_TAG" --repo arambarzani07/ZhiroxAi2026 --pattern ZhiroxAISupervisor.exe --pattern v5118-signature-proof.json --dir readback
+          cmp release-candidates/v5.1.18/v5118-signature-proof.json readback/v5118-signature-proof.json
+          test "$(sha256sum readback/ZhiroxAISupervisor.exe | awk '{print $1}')" = "$EXE_SHA256"
+          test "$(stat -c %s readback/ZhiroxAISupervisor.exe)" = "$EXE_SIZE"
+          "$RUNNER_TEMP/zhirox-v5118-exact" verify readback/ZhiroxAISupervisor.exe readback/v5118-signature-proof.json
+          echo 'SIGNED_TRANSPORT_READBACK_VERIFIED; PRODUCTION_ROLLOUT_BLOCKED'
