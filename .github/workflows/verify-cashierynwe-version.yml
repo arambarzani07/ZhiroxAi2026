@@ -1,0 +1,45 @@
+name: Verify Cashierynwe read-only version probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/pc_os_cashierynwe_version*'
+      - 'tools/patch_cashierynwe_version_snapshot.py'
+      - '.github/workflows/verify-cashierynwe-version.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/pc_os_cashierynwe_version*'
+      - 'tools/patch_cashierynwe_version_snapshot.py'
+      - '.github/workflows/verify-cashierynwe-version.yml'
+
+permissions:
+  contents: read
+jobs:
+  version-probe:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Native read-only probe and fail-closed policy
+        shell: pwsh
+        run: |
+          go test -v src/pc_os_cashierynwe_version_policy.go src/pc_os_cashierynwe_version_policy_test.go src/pc_os_cashierynwe_version_windows.go src/pc_os_cashierynwe_version_windows_test.go
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify the cloud snapshot overlay against tracked source
+        shell: pwsh
+        run: |
+          $p = Join-Path $env:RUNNER_TEMP 'pc_os_cloud_v510.go'
+          Copy-Item src/pc_os_cloud_v510.go $p
+          python tools/patch_cashierynwe_version_snapshot.py $p
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Get-Content $p -Raw) -notmatch 'snapshot\["cashierynwe_installation"\] = pcOSCashierynweRegisteredVersion\(\)') { throw 'overlay missing' }
+          gofmt -w $p
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
