@@ -7,7 +7,8 @@ const JH={"content-type":"application/json","cache-control":"no-store, max-age=0
 function json(x:unknown,s=200){return new Response(JSON.stringify(x),{status:s,headers:JH})}
 function pathOf(req:Request){const p=new URL(req.url).pathname,m=`/${SERVICE}`,i=p.indexOf(m);return i>=0?(p.slice(i+m.length)||"/"):p}
 function bearer(req:Request){const h=req.headers.get("authorization")||"";return h.toLowerCase().startsWith("bearer ")?h.slice(7).trim():""}
-async function shaBytes(b:Uint8Array){const d=await crypto.subtle.digest("SHA-256",b);return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,"0")).join("")}
+// Both callers supply a concrete ArrayBuffer-backed view (TextEncoder or response.arrayBuffer).
+async function shaBytes(b:Uint8Array<ArrayBuffer>){const d=await crypto.subtle.digest("SHA-256",b);return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,"0")).join("")}
 async function shaText(s:string){return shaBytes(enc.encode(s))}
 function hex(s:string){return new Uint8Array((s.match(/.{2}/g)||[]).map(x=>parseInt(x,16)))}
 function b64(s:string){return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
