@@ -1,0 +1,3 @@
+# v5.1.17 detached signature
+
+GitHub secret failed the pinned-key match. The existing server-side Vault signer generated the exact canonical v5.1.17 signature under the already trusted public key. The private seed was not exported or returned. The public proof is separate from the original immutable unsigned build manifest. GitHub independently verifies original artifact ID/digest and actual EXE bytes with the existing verifier. This does not authorize rollout, alter the update channel or prove PC installation. Production transport and one-time rollout approval, health/rollback verification remain required.
