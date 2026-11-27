@@ -1,0 +1,29 @@
+name: Relay safe cashier logout policy review (source only)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/pc_os_cashierynwe_safe_logout*'
+      - 'docs/PC_RELAY_v5119_SAFE_LOGOUT.md'
+      - '.github/workflows/validate-v5119-safe-logout.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/pc_os_cashierynwe_safe_logout*'
+      - '.github/workflows/validate-v5119-safe-logout.yml'
+permissions:
+  contents: read
+jobs:
+  policy:
+    name: Verify strict safe logout policy (no deployment)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - run: go test -race -v src/pc_os_cashierynwe_safe_logout_policy.go src/pc_os_cashierynwe_safe_logout_policy_test.go
+      - run: go vet src/pc_os_cashierynwe_safe_logout_policy.go src/pc_os_cashierynwe_safe_logout_policy_test.go
